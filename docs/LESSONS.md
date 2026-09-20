@@ -529,3 +529,27 @@ Awake"): it sets `~/.local/state/omarchy/indicators/stay-awake` and shows an
 indicator in the bar. Check with `omarchy-toggle-enabled idle-off`. The
 `omarchy toggle screensaver` command only disables the *screensaver*, not
 DPMS. Lesson 14's systemd-inhibit advice is superseded by this.
+
+## 28. The session was locked for ~15 minutes and I didn't notice
+
+Around 02:57 the session locked (idle, before Stay Awake was on). From then:
+every `screenshot` hung 10s or returned a stale frame, `desktop()` still
+listed windows and "focused" them fine, `wtype` typed my strings into the
+password field ("Authentication failed (2)"), and tic-tac-toe reported a
+finished board with 0 moves. I chased grim, DPMS, omarchy-shell, and click
+side-effects before a fullscreen capture finally showed the lock UI.
+
+**What was wrong:** upstream hypruse checks `session_locked()` and I stubbed
+it out as a "guard". It wasn't — it was **observation**. Refusing to act is a
+guard; *telling the agent* the screen is locked is just the truth.
+
+**Fixed in hyprcu:** `desktop()` leads with `SESSION_LOCKED: true` + a note;
+`screenshot` errors immediately; the CLI prints it first. Detection reads
+`hyprctl monitors → solitaryBlockedBy` contains `"LOCK"` — compositor-
+authoritative, so it works for omarchy-shell's lock (which is not a
+`hyprlock` process — `pgrep hyprlock` is empty here). `omarchy-shell lock
+status` gives the full JSON with a timestamp.
+
+**Rule:** distinguish *guards* (tool decides not to act → remove) from
+*observations* (tool reports state the agent can't otherwise see → keep,
+put first). Lock, DPMS-off, kev-unreachable are all observations.
