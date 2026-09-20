@@ -52,7 +52,9 @@ def describe(c: dict[str, Any]) -> str:
     for s in _TITLE_NOISE:
         t = t.replace(s, "")
     t = t.strip(" ✳◑●○").strip()[:60]
-    return f"{t} — {APP_HINTS.get(c.get('class', ''), c.get('class', ''))}"
+    ws = (c.get("workspace") or {}).get("name", "")
+    where = f" (workspace {ws})" if ws and not str(ws).startswith("special") else " (scratchpad)" if ws else ""
+    return f"{t} — {APP_HINTS.get(c.get('class', ''), c.get('class', ''))}{where}"
 
 
 def _kev(query: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, float, int]:
