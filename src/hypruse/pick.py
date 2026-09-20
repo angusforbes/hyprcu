@@ -58,11 +58,16 @@ def describe(c: dict[str, Any]) -> str:
 
 
 def _kev(query: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, float, int]:
-    """(chosen client, probability, ms). (None, 0, 0) if kev is unreachable."""
+    c, p, ms, _ = _kev_full(query, clients)
+    return c, p, ms
+
+
+def _kev_full(query: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, float, int, dict[str, float]]:
+    """(chosen client, probability, ms, all probabilities). (None, 0, 0, {}) if kev is unreachable."""
     if not clients:
-        return None, 0.0, 0
+        return None, 0.0, 0, {}
     if len(clients) == 1:
-        return clients[0], 1.0, 0
+        return clients[0], 1.0, 0, {clients[0]["address"]: 1.0}
     criteria = {c["address"]: describe(c) for c in clients}
     body = {
         "model": "kev",
@@ -77,11 +82,12 @@ def _kev(query: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any] | No
         with urllib.request.urlopen(req, timeout=KEV_TIMEOUT_S) as r:
             ans = json.load(r)["answers"]["w"]
     except (urllib.error.URLError, OSError, KeyError, json.JSONDecodeError, TimeoutError):
-        return None, 0.0, 0
+        return None, 0.0, 0, {}
     ms = int((time.time() - t0) * 1000)
     addr = ans["choice"]
     client = next((c for c in clients if c["address"] == addr), None)
-    return client, float(ans["probabilities"].get(addr, 0.0)), ms
+    probs = {k: float(v) for k, v in ans["probabilities"].items()}
+    return client, probs.get(addr, 0.0), ms, probs
 
 
 def resolve(window: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any], str]:
@@ -98,9 +104,15 @@ def resolve(window: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any],
         return hits[0], ""
     if len(hits) > 1:
         # several substring matches: let kev break the tie among just those
-        c, p, ms = _kev(q, hits)
-        if c is not None and p >= KEV_GATE:
-            return c, f" [kev: {p:.0%} of {len(hits)} matches, {ms}ms]"
+        c, p, ms, probs = _kev_full(q, hits)
+        if c is not None:
+            # among N substring hits a 1/N split is the null hypothesis; accept
+            # when the winner beats the runner-up by a clear margin, not by
+            # the absolute gate (which 8-way splits can never reach)
+            ranked = sorted(probs.values(), reverse=True)
+            margin = ranked[0] - (ranked[1] if len(ranked) > 1 else 0.0)
+            if p >= KEV_GATE or margin >= 0.15:
+                return c, f" [kev: {p:.0%} of {len(hits)} matches, {ms}ms]"
         names = "; ".join(f"{h['address']} {describe(h)[:40]}" for h in hits[:6])
         raise ResolveError(f"{q!r} matches {len(hits)} windows — pass an address: {names}")
     # no substring hit: natural language over visible, mapped windows

@@ -144,12 +144,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="address, class/title substring, or a description ('the file browser'); focused first")
     a.add_argument("--at", nargs=2, type=float, default=_S, metavar=("XPCT", "YPCT"),
                    help="0.0-1.0 fractions of that window (0.5 0.5 = centre); needs --in")
-    a = ps.add_parser("drag", help="drag from X Y to TO_X TO_Y")
-    a.add_argument("x", type=float)
-    a.add_argument("y", type=float)
-    a.add_argument("to_x", type=float, metavar="TO_X")
-    a.add_argument("to_y", type=float, metavar="TO_Y")
+    a = ps.add_parser("drag", help="drag from X Y to TO_X TO_Y, or --in WINDOW --from XPCT YPCT --to XPCT YPCT")
+    a.add_argument("coords", nargs="*", type=float, metavar="X Y TO_X TO_Y")
     a.add_argument("--button", choices=("left", "right", "middle"), default=_S)
+    a.add_argument("--in", dest="window", default=_S, metavar="WINDOW")
+    a.add_argument("--from", dest="from_pct", nargs=2, type=float, default=_S, metavar=("XPCT", "YPCT"))
+    a.add_argument("--to", dest="to_pct", nargs=2, type=float, default=_S, metavar=("XPCT", "YPCT"))
     a = ps.add_parser("scroll", help="scroll DY notches (positive: content down), DX sideways")
     a.add_argument("dy", type=float, metavar="DY")
     a.add_argument("dx", type=float, nargs="?", default=_S, metavar="DX")
@@ -292,6 +292,17 @@ def normalize(verb: str, ns: argparse.Namespace) -> tuple[dict[str, Any], dict[s
                 if "window" not in d:
                     raise Usage("--at XPCT YPCT needs --in WINDOW")
                 d["x_pct"], d["y_pct"] = d.pop("at")
+        elif d["action"] == "drag":
+            coords = d.pop("coords")
+            if len(coords) == 4:
+                d["x"], d["y"], d["to_x"], d["to_y"] = coords
+            elif coords:
+                raise Usage("drag takes X Y TO_X TO_Y, or --in WINDOW --from XPCT YPCT --to XPCT YPCT")
+            if "from_pct" in d or "to_pct" in d:
+                if "window" not in d:
+                    raise Usage("--from/--to need --in WINDOW")
+                if "from_pct" in d: d["x_pct"], d["y_pct"] = d.pop("from_pct")
+                if "to_pct" in d: d["to_x_pct"], d["to_y_pct"] = d.pop("to_pct")
         elif d["action"] == "scroll":
             d["scroll_dy"] = d.pop("dy")
             if "dx" in d:

@@ -22,9 +22,22 @@ def test_unique_substring_no_kev(monkeypatch):
     c, note = pick.resolve("strata", C); assert c["address"] == "0xa1" and note == ""
 
 def test_ambiguous_substring_kev_breaks_tie(monkeypatch):
-    monkeypatch.setattr(pick, "_kev", lambda q, cs: (cs[1], 0.9, 100))
+    monkeypatch.setattr(pick, "_kev_full", lambda q, cs: (cs[1], 0.9, 100, {cs[0]["address"]: 0.1, cs[1]["address"]: 0.9}))
     c, note = pick.resolve("chromium", C)
     assert c["address"] == "0xc3" and "of 2 matches" in note
+
+def test_ambiguous_substring_margin_beats_low_absolute(monkeypatch):
+    # 8-way split: winner at 0.30, runner-up 0.12 → clear margin, accept despite < gate
+    probs = {c["address"]: 0.12 for c in C}; probs["0xd4"] = 0.30
+    monkeypatch.setattr(pick, "_kev_full", lambda q, cs: (next(x for x in cs if x["address"]=="0xd4"), 0.30, 100, probs))
+    c, note = pick.resolve("a", C)   # 'a' is a substring of every title here
+    assert c["address"] == "0xd4"
+
+def test_ambiguous_substring_flat_split_is_actionable(monkeypatch):
+    probs = {c["address"]: 0.25 for c in C}
+    monkeypatch.setattr(pick, "_kev_full", lambda q, cs: (cs[0], 0.25, 100, probs))
+    with pytest.raises(pick.ResolveError, match="matches 4 windows"):
+        pick.resolve("a", C)
 
 def test_natural_language_above_gate(monkeypatch):
     monkeypatch.setattr(pick, "_kev", lambda q, cs: (next(x for x in cs if x["address"]=="0xa1"), 0.97, 180))
