@@ -97,9 +97,12 @@ the window list at the time, result, and — when kev chose — query and
 probability. Rows are unlabelled; a `correct` field is meant to be added
 later before anything is trained on them.
 
-Requires a Jev-compatible server at `KEV_URL` (default kev-4b on :8009, see
-pi-omarchy-computer-use/kev-serve.sh). Without one, substring and address
-targeting still work; descriptions fail with an explicit message.
+Requires a Jev-compatible server at `KEV_URL` (default kev-4b on :8009).
+The canonical launcher is the systemd user unit `kev.service`
+(`systemctl --user start/stop/status kev`; runs on CUDA in NF4, offline-safe,
+auto-starts at login) — a manual fallback is `tools/kev-serve.sh`. Without
+one, substring and address targeting still work; descriptions fail with an
+explicit message.
 
 ## No built-in judgement (2026-09-20)
 
