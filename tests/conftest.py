@@ -64,10 +64,13 @@ def unlocked_session(monkeypatch):
 # guards by design (dialog-free, agent owns the seat), so the behaviour they
 # check is intentionally absent. Listed by nodeid so a real regression in the
 # remaining suite is never masked by a blanket skip.
-import pathlib as _pl
+import pathlib as _pl  # noqa: E402  (intentionally after the prose block)
+
 _REMOVED = set((_pl.Path(__file__).parent / "removed_guard_tests.txt").read_text().split())
 
 def pytest_collection_modifyitems(config, items):
     for it in items:
         if it.nodeid in _REMOVED:
-            it.add_marker(pytest.mark.xfail(reason="hyprcu: guard removed, or window= accepts substrings/descriptions (pick.py)", strict=True))
+            it.add_marker(pytest.mark.xfail(
+                reason="hyprcu: guard removed, or window= accepts substrings/"
+                       "descriptions (pick.py)", strict=True))

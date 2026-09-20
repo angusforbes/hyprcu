@@ -24,7 +24,7 @@ Repo: https://github.com/angusforbes/hyprcu (public, 17 commits, 362 tests).
 # MCP (already in ~/.pi/agent/mcp.json as "hyprcu"; /reload to pick up changes)
 uv run --directory ~/Work/hyprcu python -m hyprcu
 
-# CLI — same functions, ~150ms per call
+# CLI — same functions, ~20 ms installed binary (few hundred ms via `uv run`)
 uv run --directory ~/Work/hyprcu hyprcu desktop
 uv run --directory ~/Work/hyprcu hyprcu hypr focus_window "the file browser"
 uv run --directory ~/Work/hyprcu hyprcu pointer click --in Strata --at 0.053 0.23

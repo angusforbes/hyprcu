@@ -23,8 +23,9 @@ import json
 import os
 import re
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 _PATH = os.environ.get("HYPRCU_LOG", str(Path.home() / ".local/share/hyprcu/actions.jsonl"))
 _ENABLED = _PATH not in ("0", "", "off", "false")
@@ -34,7 +35,8 @@ _KEV = re.compile(r"\[kev: (\d+)% (?:of \d+ matches, |in )(\d+)ms\]")
 def _windows() -> list[dict[str, Any]]:
     try:
         from hyprcu import hyprctl
-        return [{"address": c.get("address"), "class": c.get("class"), "title": (c.get("title") or "")[:80],
+        return [{"address": c.get("address"), "class": c.get("class"),
+                 "title": (c.get("title") or "")[:80],
                  "workspace": (c.get("workspace") or {}).get("name")}
                 for c in hyprctl.query("clients") if c.get("mapped", True)]
     except Exception:  # noqa: BLE001 — logging must never break a tool
@@ -47,7 +49,8 @@ def _text(result: Any) -> str:
     if isinstance(result, list):
         for blk in result:
             t = getattr(blk, "text", None)
-            if t: return t
+            if t:
+                return t
     if isinstance(result, dict):
         return json.dumps(result)[:300]
     return str(result)[:300]
@@ -55,7 +58,8 @@ def _text(result: Any) -> str:
 
 def _append(row: dict[str, Any]) -> None:
     try:
-        p = Path(_PATH); p.parent.mkdir(parents=True, exist_ok=True)
+        p = Path(_PATH)
+        p.parent.mkdir(parents=True, exist_ok=True)
         with p.open("a") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
     except OSError:
@@ -73,7 +77,8 @@ def _log(tool: str, kwargs: dict[str, Any], txt: str, err: bool, t0: float) -> N
             "windows": _windows(), "result": txt[:300], "is_error": err,
             "ms": int((time.time() - t0) * 1000),
         }
-        m = _KEV.search(txt); q = kwargs.get("window") or kwargs.get("target")
+        m = _KEV.search(txt)
+        q = kwargs.get("window") or kwargs.get("target")
         if m and q:
             row["kev"] = {"query": q, "p": int(m.group(1)) / 100, "ms": int(m.group(2))}
         _append(row)
@@ -81,7 +86,9 @@ def _log(tool: str, kwargs: dict[str, Any], txt: str, err: bool, t0: float) -> N
         pass
 
 
-def journaled(kind: str | Callable[[dict[str, Any]], str]) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+def journaled(
+    kind: str | Callable[[dict[str, Any]], str],
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Log acting tools. `kind` is upstream's 'act'/'observe' tag (or a fn)."""
     def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
         if not _ENABLED or kind != "act":

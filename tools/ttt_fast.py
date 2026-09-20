@@ -7,7 +7,9 @@ No screenshots sent to a large model. Per-turn loop:
 
 Usage: ttt_fast.py [--no-model]   (--no-model uses minimax instead of OpenDecision)
 """
-import subprocess, sys, time, json, os
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path.home() / "Work/OpenDecision/src"))
@@ -43,16 +45,24 @@ def read_board(cx, cy):
             pts = [(0, 0)]
             for ang in range(0, 360, 30):
                 import math
-                pts.append((int(18 * math.cos(math.radians(ang))), int(18 * math.sin(math.radians(ang)))))
+                pts.append(
+                    (
+                        int(18 * math.cos(math.radians(ang))),
+                        int(18 * math.sin(math.radians(ang))),
+                    )
+                )
             for d in (-10, 10):
                 pts += [(d, d), (d, -d)]
             vals = [img.getpixel((ix + dx, iy + dy)) for dx, dy in pts]
             # X is dark grey (~80,80,80); O is cream (~240,235,215); empty is teal (~20,190,175)
             dark = sum(1 for (R, G, B) in vals if R < 120 and G < 120 and B < 120)
             cream = sum(1 for (R, G, B) in vals if R > 200 and G > 200 and B > 180)
-            if cream >= 3: board.append("O")
-            elif dark >= 2: board.append("X")
-            else: board.append(".")
+            if cream >= 3:
+                board.append("O")
+            elif dark >= 2:
+                board.append("X")
+            else:
+                board.append(".")
     return "".join(board)
 
 def winner(b):
@@ -64,16 +74,21 @@ def winner(b):
 
 def minimax(b, player):
     w = winner(b)
-    if w == "X": return 1, None
-    if w == "O": return -1, None
-    if w == "D": return 0, None
+    if w == "X":
+        return 1, None
+    if w == "O":
+        return -1, None
+    if w == "D":
+        return 0, None
     best = (-2, None) if player == "X" else (2, None)
     for i in range(9):
         if b[i] == ".":
             nb = b[:i] + player + b[i+1:]
             score, _ = minimax(nb, "O" if player == "X" else "X")
-            if player == "X" and score > best[0]: best = (score, i)
-            if player == "O" and score < best[0]: best = (score, i)
+            if player == "X" and score > best[0]:
+                best = (score, i)
+            if player == "O" and score < best[0]:
+                best = (score, i)
     return best
 
 _engine = None
@@ -101,7 +116,11 @@ def pick_move_model(board):
         tag = " (WINS immediately)" if wins else " (BLOCKS opponent win)" if blocks else ""
         criteria[f"cell{i+1}"] = f"Play cell {i+1} (row {r+1}, column {c+1}){tag}"
     t0 = time.time()
-    res = _engine.choice(state=state, instructions="Which cell should X play to win or avoid losing?", criteria=criteria)
+    res = _engine.choice(
+        state=state,
+        instructions="Which cell should X play to win or avoid losing?",
+        criteria=criteria,
+    )
     ms = int((time.time() - t0) * 1000)
     choice = res["choice"]
     idx = int(choice.replace("cell", "")) - 1
@@ -113,12 +132,14 @@ def click_cell(idx):
 
 def main():
     print(sh(str(TTT), "setup"))
-    sh(str(TTT), "restart"); time.sleep(0.9)
+    sh(str(TTT), "restart")
+    time.sleep(0.9)
     cx, cy = grid_center()
     print(f"grid center: ({cx},{cy})  mode: {'OpenDecision' if USE_MODEL else 'minimax'}")
 
     if USE_MODEL:
-        t0 = time.time(); pick_move_model("........."[:8] + ".")  # warm up
+        t0 = time.time()
+        pick_move_model("........."[:8] + ".")  # warm up
         print(f"model warmup: {int((time.time()-t0)*1000)}ms\n")
 
     game_start = time.time()
@@ -128,15 +149,32 @@ def main():
     while turn < 6:
         turn += 1
         t_turn = time.time()
-        t0 = time.time(); board = read_board(cx, cy); t_read = int((time.time() - t0) * 1000)
+        t0 = time.time()
+        board = read_board(cx, cy)
+        t_read = int((time.time() - t0) * 1000)
         w = winner(board)
         if w:
             break
         if board == prev_board:
             stale += 1
             if stale >= 2:
-                sh("grim", "-s", "1", "-g", f"{cx-160},{cy-200} 320x400", "-t", "jpeg", "-q", "85", "/tmp/ttt-stuck.jpg")
-                print(f"STUCK: board unchanged after click ({board}). Screenshot: /tmp/ttt-stuck.jpg")
+                sh(
+                    "grim",
+                    "-s",
+                    "1",
+                    "-g",
+                    f"{cx-160},{cy-200} 320x400",
+                    "-t",
+                    "jpeg",
+                    "-q",
+                    "85",
+                    "/tmp/ttt-stuck.jpg",
+                )
+                msg = (
+                    f"STUCK: board unchanged after click ({board}). "
+                    "Screenshot: /tmp/ttt-stuck.jpg"
+                )
+                print(msg)
                 return None, "stuck", 0
         else:
             stale = 0
@@ -144,11 +182,19 @@ def main():
         if USE_MODEL:
             idx, prob, t_model = pick_move_model(board)
         else:
-            t0 = time.time(); _, idx = minimax(board, "X"); t_model = int((time.time() - t0) * 1000); prob = 1.0
-        t0 = time.time(); click_cell(idx); t_click = int((time.time() - t0) * 1000)
+            t0 = time.time()
+            _, idx = minimax(board, "X")
+            t_model = int((time.time() - t0) * 1000)
+            prob = 1.0
+        t0 = time.time()
+        click_cell(idx)
+        t_click = int((time.time() - t0) * 1000)
         r, c = divmod(idx, 3)
-        print(f"turn {turn}: {board[0:3]}/{board[3:6]}/{board[6:9]} → X@[{r+1},{c+1}] p={prob:.2f} "
-              f"| read {t_read}ms  decide {t_model}ms  click {t_click}ms  = {int((time.time()-t_turn)*1000)}ms")
+        print(
+            f"turn {turn}: {board[0:3]}/{board[3:6]}/{board[6:9]} → X@[{r+1},{c+1}] "
+            f"p={prob:.2f} | read {t_read}ms  decide {t_model}ms  click {t_click}ms  = "
+            f"{int((time.time()-t_turn)*1000)}ms"
+        )
         time.sleep(0.9)  # O's animation
 
     total = int((time.time() - game_start) * 1000)

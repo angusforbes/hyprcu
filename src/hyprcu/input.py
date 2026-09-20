@@ -166,7 +166,7 @@ _held_button: str | None = None
 def release_held() -> None:
     """Best-effort release of a button an in-flight drag is holding.
 
-    Registered on the SIGTERM path (safety.on_shutdown): a click's
+    Registered on the SIGTERM path (cleanup.register): a click's
     press/release pair never spans interpreter checkpoints where a signal
     could land with the button down, but a drag holds it across ~200 ms of
     cursor moves, and the kill switch must not end the process mid-hold."""

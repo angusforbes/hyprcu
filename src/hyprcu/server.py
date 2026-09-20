@@ -21,7 +21,18 @@ import time
 from pathlib import Path
 from typing import Any
 
-from hyprcu import __version__, a11y, events, hyprctl, journal, pick, safety, session, trust
+from hyprcu import (
+    __version__,
+    a11y,
+    cleanup,
+    events,
+    hyprctl,
+    journal,
+    pick,
+    safety,
+    session,
+    trust,
+)
 from hyprcu import clipboard as clip
 from hyprcu import input as hinput
 from hyprcu import screenshot as shot
@@ -678,11 +689,16 @@ def pointer(
             raise ValueError("x_pct/y_pct need `window` (address, substring, or description)")
         client = _resolve_window(window)
         note = client.get("_pick_note", "")
-        wx, wy = client["at"]; ww, wh = client["size"]
-        if x_pct is not None: x = wx + x_pct * ww
-        if y_pct is not None: y = wy + y_pct * wh
-        if to_x_pct is not None: to_x = wx + to_x_pct * ww
-        if to_y_pct is not None: to_y = wy + to_y_pct * wh
+        wx, wy = client["at"]
+        ww, wh = client["size"]
+        if x_pct is not None:
+            x = wx + x_pct * ww
+        if y_pct is not None:
+            y = wy + y_pct * wh
+        if to_x_pct is not None:
+            to_x = wx + to_x_pct * ww
+        if to_y_pct is not None:
+            to_y = wy + to_y_pct * wh
         hyprctl.dispatch("focuswindow", f"address:{client['address']}")
         time.sleep(0.05)
     trust.guard_seat()
@@ -1754,10 +1770,8 @@ def main() -> None:
         print(_INTERACTIVE_HELP.format(version=__version__), file=sys.stderr)
         return
     session.ensure_session_env()
-    safety.init()
-    safety.on_shutdown(hinput.release_held)  # kill switch mid-drag: release first
-    journal.start(__version__)  # HYPRCU_JOURNAL: open the session record
-    safety.on_shutdown(journal.stop)  # closed on the SIGTERM path too
+    cleanup.arm()  # SIGTERM/atexit path for the release below
+    cleanup.register(hinput.release_held)  # kill switch mid-drag: release first
     trust.init_marking()  # HYPRCU_MARK: install the agent-owned border rule
     app().run()
 

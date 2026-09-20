@@ -1,5 +1,18 @@
 # Desktop Interaction Tests
 
+> **Status note (2026-09-20, hyprcu).** The runs below are the **historical
+> record of the retired `desktop.ts` extension** (and, for Run 2, the first
+> hyprcu pointer against the same flows). The stack these were written for is
+> gone: `desktop.ts` is retired and everything it did is in hyprcu. Today the
+> relevant live tests are the CI + `/pytest -m e2e` tiers in ARCHITECTURE.md
+> ("Testing tiers"), and the supervised `tools/` scripts. Under hyprcu only
+> T1–T21 have been re-verified; **T22–T25 have not been rerun under hyprcu**
+> (the session locked mid-run; see HANDOFF) and remain to be re-run before
+> they count as current. The tables below are kept as-is for context, not as
+> a claim about the current stack.
+
+---
+
 20 tests of increasing complexity for the `desktop` extension.
 Stack: `hyprctl dispatch` + `wlrctl` + `wtype` + `grim`.
 

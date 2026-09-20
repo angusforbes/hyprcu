@@ -2,71 +2,89 @@
 
 Ten-minute orientation for contributors.
 
+A fork of [hypruse](https://github.com/IlyasKhallouki/hypruse) (MIT,
+IlyasKhallouki): the Wayland/Hyprland primitives are kept close to
+upstream so fixes merge cleanly, the trust/journal/safety/CLI layers that
+*dictate what an agent may do* are replaced with no-op stubs or strapped
+down, and three capabilities are added (natural-language window targeting,
+window-relative coordinates, and a training log). The README's
+"kept / replaced / removed" tables are the authoritative picture; this
+file explains how the pieces fit.
+
 ## Module map
 
 ```
 src/hyprcu/
-  cli.py         entry point: server by default, doctor / init / stop /
-                 journal / replay / skill subcommands, --help
-  verbs.py       the 15 tools as shell verbs: argparse over the same tool
-                 functions, the output and exit-code contract, renderers
+  cli.py         entry point: no args → MCP stdio server; --help/--version;
+                 bare verbs route to verbs.py. doctor + stop are the only
+                 owner commands (init / journal / replay / skill are no-op
+                 stubs that print "removed")
+  verbs.py       the 14 tools as shell verbs: argparse over the same tool
+                 functions, the output and exit-code contract, renderers,
+                 and the cross-process acting lock in cli.lock
   cli_state.py   what a one-shot verb remembers between processes (marks
-                 numbering, launched-confinement set, strict seat baseline)
-  skill.py       the packaged Agent Skill (skills/hyprcu) and its install
-                 into each agent's skills directory
-  server.py      the tools (clipboard is opt-in), docstrings = the
+                 numbering, the owned-set, the seat baseline), keyed by
+                 compositor instance — a verb is a fresh process per call
+  pick.py        hyprcu's NAMED capability: address → substring → kev
+                 natural-language window resolution (see below)
+  journal.py     hyprcu's training log: NDJSON rows of acting calls with
+                 the kev query + probability, written best-effort to
+                 ~/.local/share/hyprcu/actions.jsonl (HYPRCU_LOG)
+  server.py      the 14 tools (clipboard opt-in); docstrings = the
                  agent-facing API; the FastMCP app is built on first use
   hyprctl.py     all Hyprland IPC (queries + dispatchers), the config-manager
-                 probe and the Lua dialect, state trimming, keybind decoding
+                 probe and the Lua dialect, state trimming, SESSION_LOCKED
+                 observation, keybind decoding
   events.py      socket2 event stream: parser + wait primitive
   wire.py        raw Wayland client for zwlr_virtual_pointer_v1
   input.py       pointer orchestration (movecursor + wire) and wtype keyboard
   screenshot.py  grim capture: monitor / window / region + coord metadata
   a11y.py        AT-SPI accessibility-tree reader over D-Bus (busctl): named
-                 controls, current values, exact coords, and focused-role
-                 lookup; backs ui, marks, click_ui, then='ui', and the
-                 auth-guard password-field check
-  trust.py       opt-in confinement, auth interlock, seat-contention guard,
-                 and ownership marking (HYPRUSE_CONFINE/AUTH_GUARD/STRICT/MARK)
-  journal.py     NDJSON record of every tool call (HYPRUSE_JOURNAL) and the
-                 dry-run mode (HYPRUSE_DRYRUN) with its effect-boundary
-                 barrier; what `hyprcu journal` and `hyprcu replay` read
+                 controls, current values, exact coords; backs ui, marks,
+                 click_ui, then='ui'
   clipboard.py   wl-clipboard wrapper for the opt-in clipboard tool
   session.py     discovers HYPRLAND_INSTANCE_SIGNATURE / WAYLAND_DISPLAY
                  from runtime-dir sockets when the host stripped the env
-  safety.py      activity beacon + kill-switch semantics
+  cleanup.py     process-exit handlers (SIGTERM + atexit): the server and
+                 verbs register `input.release_held` here so a kill
+                 mid-drag releases the button instead of stranding it
+  trust.py       no-op stub — same public names as upstream, every guard
+                 passes, nothing refuses (see "No built-in judgement")
+  safety.py      no-op stub — no activity beacon; `pkill -f hyprcu` is the
+                 kill switch
+  skill.py       no-op stub — no skill installer
 ```
 
 Rule of thumb: `server.py` validates and narrates; everything real happens
-in the leaf modules, which stay importable and testable without MCP.
+in the leaf modules, which stay importable and testable without MCP. The
+three stubs exist only so `server.py` and `input.py` need no edits — their
+calls still resolve.
 
 ## Two surfaces, one set of tools
 
 The MCP server and the shell verbs call the same module-level functions in
-`server.py`, so a guard, a journal entry or a beacon touch is written once.
-What differs is transport. A tool returns either a string or a list of
-content blocks, and it asks for those blocks through `_text()`/`_image()`
-rather than naming `mcp.types`: the MCP path gets the pydantic objects
-FastMCP expects, the CLI path (`use_plain_blocks()`) gets a plain `Block`
-with the same fields. That, plus building the FastMCP app on first access
-(`app()`, reachable as `server.mcp`) instead of at import, is what keeps a
-verb's startup at a few hundred milliseconds: importing the MCP stack costs about two seconds
-of pydantic model building, which a process that only prints text and file
-paths must not pay.
+`server.py`, so a journal row or a window-resolution is written once. What
+differs is transport. A tool returns either a string or a list of content
+blocks, and it asks for those blocks through `_text()`/`_image()` rather
+than naming `mcp.types`: the MCP path gets the pydantic objects FastMCP
+expects, the CLI path (`use_plain_blocks()`) gets a plain `Block` with the
+same fields. That, plus building the FastMCP app on first access
+(`app()`, reachable as `server.mcp`) instead of at import, is what keeps
+a verb's startup cheap: importing the MCP stack costs about two seconds of
+pydantic model building, which a process that only prints text and file
+paths must not pay. (Measured: the installed `hyprcu` binary starts in
+~20 ms cold; the 150–300 ms figure in older docs is the `uv run …` path.)
 
-The CLI adds three things the server does not need. `cli_state.py` carries
+The CLI adds two things the server does not need. `cli_state.py` carries
 across processes what a long-lived server keeps in memory: the `marks`
-numbering, the `launched` confinement set, and the strict-mode seat
-baseline (without which `guard_seat` is a no-op in every fresh process,
-the one case that fails open). It is keyed by compositor instance, since
-window addresses are heap pointers, and every consumer degrades to
-"nothing remembered". A verb that acts takes a cross-process lock and
-always arms the SIGTERM cleanup (`safety.arm()`), even when a live server
-already holds the beacon, because `pkill -f hyprcu` matches the verb too
-and a verb killed mid-drag must still release its button. And the journal
-stamps a verb's records with `source: "cli"`, never `by`, so they remain
-the agent's own actions to `replay`; the session header is written once
-per run of identical flags rather than once per process.
+numbering and the `owned`/seat baseline. It is keyed by compositor
+instance, since window addresses are heap pointers, and every consumer
+degrades to "nothing remembered" rather than guessing. An *acting* verb
+(any tool in `ACT`) takes a cross-process lock (`cli.lock`, held for the
+process's lifetime) and stamps its journal rows `source: "cli"`, the same
+serialization the server gets from an in-process lock, so two parallel
+verbs can't interleave a drag's press and release on the one virtual
+pointer.
 
 ## The coordinate contract
 
@@ -79,7 +97,34 @@ One space rules everything: **Hyprland global logical coordinates** (what
   capture so callers map back: `global = origin + pixel / scale`.
 
 If you touch anything coordinate-adjacent, preserve this contract; it is
-what keeps multi-monitor and fractional scaling tractable.
+what keeps multi-monitor and fractional scaling tractable. On top of it,
+two of hyprcu's additions live: **window-relative pointers** (`pointer` /
+`drag` take an optional `window` plus `x_pct`/`y_pct` in 0–1, resolved
+against that window's *current* geometry after focusing it, so a click
+survives a move or resize) and **window-relative a11y marks** (`click_ui
+--mark N` numbers are stored window-relative).
+
+## Natural-language window targeting (pick.py)
+
+Every `window=` argument on hypr, pointer, keyboard, screenshot, ui and
+click_ui accepts, in order:
+
+1. an exact address (`0x…`) — no resolution cost, the only form kev can't
+   improve on;
+2. a unique class/title substring — free, no model call;
+3. a natural-language description ("the file browser"). This goes to
+   **kev-4b**, a local Jev-compatible decision model, which scores the
+   open windows; below `KEV_GATE` (0.5) `resolve()` raises an actionable
+   "the app may not be open — check desktop() or launch it" instead of
+   guessing. When kev is unreachable at `KEV_URL`, substrings and
+   addresses still work and descriptions fail with an explicit message.
+
+Ambiguous substrings are tie-broken by the same kev call restricted to the
+matching windows, accepting the winner when its margin over the runner-up
+is clear even if the absolute score is below the gate. A result that kev
+chose carries a note like `[kev: 99% in 229ms]` so callers can see when
+the model was used. `tools/kev_bench.py` is the honesty check against
+ground-truth cases.
 
 ## The two config managers
 
@@ -127,13 +172,12 @@ running inside the compositor.
   We shell out instead of reimplementing keymap upload; that wheel is
   round already.
 
-A click's press and release always happen inside one tool call. A drag
-holds a button across ~200 ms of cursor moves, so the SIGTERM path (what
-the kill switch sends) runs a registered cleanup that releases any held
-button first. Either way the process can die mid-run without stranding a
-button, which is what makes both `hyprcu stop` (graceful: signals the
-beacon pid, releases the button, clears the beacon) and the blunter
-`pkill -f hyprcu` safe panic actions at any moment.
+A click's press and release always happen inside one tool call; a drag
+holds a button across ~200 ms of cursor moves. The server and every
+*acting* verb register `input.release_held` on `cleanup`, so SIGTERM (or
+`pkill -f hyprcu`) runs it before the process dies and no held button is
+stranded mid-drag. The cleanup is deliberately separate from the removed
+`safety` beacon stubs.
 
 ## Sequence of a typical agent step
 
@@ -142,92 +186,68 @@ beacon pid, releases the button, clears the beacon) and the blunter
 3. `screenshot window=0x…` → crop + `geometry`/`scale` (or `ui` to read
    the accessibility tree by name, no pixels).
 4. `pointer click x y`, computed from image pixel via the contract (or
-   `click_ui name="Save"` to resolve and click in one call).
+   `pointer click --in "Strata" --at 0.053 0.23` to target a window by
+   description and fraction, or `click_ui name="Save"` to resolve and
+   click in one call).
 5. `keyboard type "…"`.
 6. `desktop` again to verify the world changed as expected (or fuse it:
    most acting tools take `then='desktop'|'screenshot'|'ui'`).
 
-## Trust layers
+## No built-in judgement
 
-Four opt-in env flags (`HYPRUSE_CONFINE`, `HYPRUSE_AUTH_GUARD`,
-`HYPRUSE_STRICT`, `HYPRUSE_MARK`) live in `trust.py` and are enforced as
-`trust.guard_*` calls inside the acting tools in `server.py`: `pointer`,
-`keyboard`, `click_ui`, `hypr`, and `use_bind` each refuse an out-of-scope
-target, an authentication window, or a moved seat; `sequence` steps go
-through those same tool functions, so they inherit the guards. `launch` is
-the exception: it creates a new window (nothing to confine), so instead of
-guarding it seeds the owned-set (`note_launched`). A guard raises
-`TrustError`, which becomes the tool's error; every guard fails toward
-*less* action (an unresolved target or a malformed scope refuses rather
-than proceeds). `remember_seat` runs after an acting tool moves the seat so
-the next `guard_seat` has a fresh baseline; the observation tools that
-show current state (`desktop`, `screenshot`/`zoom` captures, `ui`,
-`marks`) re-baseline too, so a tripped strict guard recovers when the
-agent re-observes. Three always-on companion checks cover what the
-window-based guards cannot see. Layer surfaces never appear in
-`clients`, so a click aimed under a launcher or on-screen keyboard
-would silently land on the layer (`click_ui` refuses, `pointer` appends
-a warning naming the topmost covering surface), and a launcher holds
-the keyboard grab, so `keyboard` refuses a window-targeted type and
-annotates window-less typing with where the keys really went. A locked
-session is invisible to both: modern lockers (hyprlock, swaylock >=
-1.7) are `ext-session-lock-v1` clients rather than layer-shell ones, so
-they appear in neither `clients` nor `layers`, and Hyprland exposes no
-lock state over IPC. `trust.session_locked` therefore detects the
-locker PROCESS, since the protocol returns the session the instant that
-client exits, and the input-delivering tools (`keyboard`, `click_ui`,
-and `pointer`'s click/drag/scroll; a bare `pointer` move only shifts the
-cursor) refuse while it is up unless `allow_auth` says a human wants the
-agent driving the prompt. The guards are the confinement
-path over the same happy path above: step 4 is refused if the point is over
-an out-of-scope or authentication window, step 2 if the target is out of
-scope.
+hyprcu does what it's asked. The upstream trust layer — confinement,
+authenticator detection, seat-ownership, session-lock refusal — was the
+part that *decides not to act*, and it is replaced by `trust.py` stubs:
+every `trust.guard_*` call resolves, no `TrustError` is raised, no action
+is refused. `test_no_guards.py` pins this: acting tools have no step cap,
+no time budget, no clamped waits, `sequence` does not abort on desktop
+change unless `stop_on_change=true` is passed, and no tool docstring
+promises a refusal.
 
-## The record: journal, dry run, replay
+What is *kept* is the part upstream used for the agent's awareness: the
+observation that the tool reports but cannot see around. `desktop` leads
+its snapshot with `SESSION_LOCKED` and a note when a locker process is up
+(modern lockers are `ext-session-lock-v1` clients, invisible to both
+`clients` and `layers`), reports `display: off` under DPMS, and pick.py
+names kev-unreachable explicitly. None of it stops the call; all of it is
+meant to be read first. `HYPRCU_READONLY=1` is the opt-in that actually
+removes the acting tools from the surface.
 
-`journal.py` is the layer beneath the guards: they decide, it remembers.
-`HYPRUSE_JOURNAL` appends one NDJSON line per tool call, written by a
-`@journal.journaled` decorator applied at each tool's DEFINITION site
-rather than at MCP registration, because `sequence` dispatches its steps
-through the module-level tool functions and those steps are the entries
-replay re-issues. Refusals are recorded with the guard's own message,
-which is the only place that history exists. Typed and copied text is
-recorded as a length plus digest unless `HYPRUSE_JOURNAL_TEXT` says
-otherwise, since the alternative is a file of passwords. Unlike a guard,
-the recorder fails toward the ACTION: an unwritable journal warns once on
-stderr and gets out of the way.
+## The record: the training log
 
-`HYPRUSE_DRYRUN` is enforced twice. Each acting tool runs its argument
-checks and every `trust.guard_*` call, then returns the plan it was about
-to execute; a rehearsal whose refusals differ from the real run would be
-worth nothing, so the guards stay exactly where they are. Underneath,
-`journal.refuse_if_dry` raises at the effect boundary itself (`input`'s
-six delivery functions, `hyprctl.dispatch`, `clipboard.write`), so a path
-nobody thought of fails loudly with nothing delivered instead of quietly
-acting during what the caller was told was a simulation.
+`journal.py` is the layer that *remembers* the agent's own actions for
+training, and it is real (not a stub): a `@journal.journaled` decorator at
+each tool's definition site appends one NDJSON row per call to
+`~/.local/share/hyprcu/actions.jsonl` (`HYPRCU_LOG=0` disables). A row
+carries the tool, the not-defaulted arguments, the window list at the
+time, the result, and — when kev chose a window — the query and
+probability. Acting tools are tagged `"act"`, observers `"observe"`.
+Rows are deliberately unlabelled: a `correct` field is meant to be added
+later before anything is trained on them. The recorder fails toward the
+action — an unwritable journal warns on stderr and gets out of the way.
 
-`hyprcu replay` re-issues a journal's actions through the same tool
-functions, so the same guards apply. It prints the plan and stops unless
-`--execute`, and every refusal happens in a pre-flight, before the seat
-is taken, because a refusal that lands halfway leaves the desktop
-part-way through someone else's plan. Window addresses are the honest
-limit: they are heap pointers, so a journal outlives them, and an address
-can even be reused by a different window later, which no pre-flight can
-see.
-
-Both the plan and `hyprcu journal` render values that the audited party
-wrote, so `cli._safe` strips control characters before re-embedding them
-in output hyprcu builds, the same treatment and for the same reason as
-`safety._ACTION_JUNK` on the beacon. Without it a recorded argument could
-carry ESC sequences that erase the lines above it, and the plan a human
-approves would not be the plan that runs.
+There is no `HYPRUSE_JOURNAL` audit trail, no `HYPRUSE_DRYRUN` effect
+barrier, and no `hyprcu journal`/`replay` command in this fork; `--dry-run`
+rehearses an acting verb but the deep upstream journal features were
+removed.
 
 ## Testing tiers
 
 1. **Unit** (CI): pure functions, wire encoders/parsers, combo parsing,
-   region parsing, state trimming against fixtures.
+   region parsing, state trimming against fixtures, and the no-guards
+   contract. `uv run pytest tests/ --ignore=tests/test_e2e.py` → 362
+   passed, 53 xfailed (the xfails are enumerated guard-refusals that must
+   stay removed, marked `strict` so a guard silently coming back fails the
+   suite).
 2. **Live seat-safe** (`pytest -m e2e`): real session, zero input events,
-   including a virtual-pointer create/destroy handshake.
-3. **Supervised** (`scripts/e2e_input.py`): the only tier that clicks and
-   types; countdown, self-verifying via kitty remote control, restores
-   focus. Never wire this into anything automatic.
+   including a virtual-pointer create/destroy handshake and full MCP stdio
+   round-trips.
+3. **Supervised** (`tools/`): the only tier that clicks and types —
+   `ttt_fast.py`, `kev_bench.py`, `window_pick.py`. Never wire these into
+   anything automatic; `docs/TESTS.md` records the supervised flows.
+
+## Known gaps
+
+- `sequence` runs its steps sequentially in-process through the same
+  module-level tool functions; a step that raises stops the run (an
+  error, not a guard).

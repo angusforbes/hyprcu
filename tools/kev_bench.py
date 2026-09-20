@@ -9,10 +9,15 @@ Benchmark a kev (or Jev-compatible) server on window selection.
 Uses the live window list from hyprctl, plus a fixed query set with
 ground-truth answers so different models/sizes can be compared honestly.
 """
-import json, subprocess, sys, time, urllib.request
+import json
+import subprocess
+import sys
+import time
+import urllib.request
 
 URL = "http://127.0.0.1:8009/v1/systemone"
-if "--url" in sys.argv: URL = sys.argv[sys.argv.index("--url") + 1]
+if "--url" in sys.argv:
+    URL = sys.argv[sys.argv.index("--url") + 1]
 WITH_NONE = "--none" in sys.argv
 
 APP = {"io.github.lgse.Strata": "Strata file browser, file manager",
@@ -22,12 +27,15 @@ APP = {"io.github.lgse.Strata": "Strata file browser, file manager",
        "org.omarchy.agent": "AI agent pane, Claude Code, assistant chat"}
 
 def windows():
-    ws = json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout)
+    ws = json.loads(
+        subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout
+    )
     return [c for c in ws if c["mapped"] and c["workspace"]["name"] != "special:reprieve"]
 
 def describe(c):
     t = c["title"]
-    for s in (" - Chromium", " - Brave Origin", " - Google Search", " - Slack"): t = t.replace(s, "")
+    for s in (" - Chromium", " - Brave Origin", " - Google Search", " - Slack"):
+        t = t.replace(s, "")
     return f"{t.strip(' ✳◑●○').strip()[:60]} — {APP.get(c['class'], c['class'])}"
 
 def ask(query, ws):
@@ -36,10 +44,17 @@ def ask(query, ws):
     if WITH_NONE:
         crit["NONE"] = "None of the open windows match this description"
         instr += " If nothing fits, choose NONE."
-    body = {"model": "kev", "state": f'The user wants to interact with: "{query}"',
-            "questions": {"w": {"type": "choice", "instructions": instr, "criteria": crit}}}
-    req = urllib.request.Request(URL, json.dumps(body).encode(), {"content-type": "application/json"})
-    t = time.time(); r = json.load(urllib.request.urlopen(req)); ms = int((time.time() - t) * 1000)
+    body = {
+        "model": "kev",
+        "state": f'The user wants to interact with: "{query}"',
+        "questions": {"w": {"type": "choice", "instructions": instr, "criteria": crit}},
+    }
+    req = urllib.request.Request(
+        URL, json.dumps(body).encode(), {"content-type": "application/json"}
+    )
+    t = time.time()
+    r = json.load(urllib.request.urlopen(req))
+    ms = int((time.time() - t) * 1000)
     a = r["answers"]["w"]
     return a["choice"], a["probabilities"][a["choice"]], ms
 
@@ -62,18 +77,24 @@ CASES = [
 def main():
     ws = windows()
     print(f"{len(ws)} windows, server={URL}, none_option={WITH_NONE}\n")
-    right = 0; lat = []
+    right = 0
+    lat = []
     for q, pred in CASES:
-        addr, p, ms = ask(q, ws); lat.append(ms)
+        addr, p, ms = ask(q, ws)
+        lat.append(ms)
         if addr == "NONE":
-            ok = pred is None; got = "NONE"
+            ok = pred is None
+            got = "NONE"
         else:
             c = next(w for w in ws if w["address"] == addr)
             got = c["title"][:34]
             ok = (pred is not None and pred(c)) or (pred is None and p < 0.5)
         right += ok
         print(f"{'✓' if ok else '✗'} {q:38s} → {got:36s} {p:.2f} {ms:4d}ms")
-    print(f"\n{right}/{len(CASES)} correct   median {sorted(lat)[len(lat)//2]}ms   warm-min {min(lat)}ms")
+    print(
+        f"\n{right}/{len(CASES)} correct   median {sorted(lat)[len(lat)//2]}ms   "
+        f"warm-min {min(lat)}ms"
+    )
 
 if __name__ == "__main__":
     main()

@@ -11,15 +11,24 @@ Prints: <address> <class> <title>   (or NONE if confidence too low)
 
 Warm GPU call ≈ 80ms. Cold start ≈ 5s (60s the very first time for triton JIT).
 """
-import json, subprocess, sys, time
+import json
+import subprocess
+import sys
+import time
 
 sys.path.insert(0, "/home/agf/Work/OpenDecision/src")
 
 MIN_PROB = 0.35   # below this, say NONE and let Claude decide
 
 def windows():
-    out = subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout
-    ws = [c for c in json.loads(out) if c.get("mapped") and c["workspace"]["name"] != "special:reprieve"]
+    out = subprocess.run(
+        ["hyprctl", "clients", "-j"], capture_output=True, text=True
+    ).stdout
+    ws = [
+        c
+        for c in json.loads(out)
+        if c.get("mapped") and c["workspace"]["name"] != "special:reprieve"
+    ]
     return ws
 
 APP_HINTS = {
@@ -75,7 +84,8 @@ def main():
         print("READY", flush=True)
         for line in sys.stdin:
             q = line.strip()
-            if not q: continue
+            if not q:
+                continue
             ws = windows()
             t = time.time()
             addr, p, _ = pick(q, ws)

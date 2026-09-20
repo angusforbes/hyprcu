@@ -2,11 +2,13 @@
 
 Upstream's cli.py also carried `init` (MCP-client registration wizard),
 `journal`/`replay` (audit log), and skill installation. hyprcu keeps the
-verbs — every MCP tool callable from bash, ~300ms per fresh process — and
-the two commands that stand alone.
+verbs — every MCP tool callable from bash, a ~20 ms cold start for the
+installed binary (a few hundred ms under `uv run`) — and the two commands
+that stand alone.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import signal
@@ -28,10 +30,13 @@ def doctor() -> int:
     print(f"{'ok ' if sig else 'MISSING'}  HYPRLAND_INSTANCE_SIGNATURE {sig or ''}")
     ok &= bool(sig)
     try:
-        v = subprocess.run(["hyprctl", "version"], capture_output=True, text=True, timeout=3).stdout.split("\n")[0]
-        print(f"ok   {v}")
+        got = subprocess.run(
+            ["hyprctl", "version"], capture_output=True, text=True, timeout=3
+        ).stdout.splitlines()
+        print(f"ok   {got[0] if got else ''}")
     except Exception as e:  # noqa: BLE001
-        print(f"MISSING  hyprctl not answering: {e}"); ok = False
+        print(f"MISSING  hyprctl not answering: {e}")
+        ok = False
     return 0 if ok else 1
 
 
@@ -39,11 +44,13 @@ def stop() -> int:
     """Kill any running hyprcu server or verb. No beacon in this fork, so
     this is a pgrep; bind it to a key as the panic switch."""
     me = os.getpid()
-    out = subprocess.run(["pgrep", "-f", "python.*-m hyprcu|hyprcu"], capture_output=True, text=True).stdout.split()
+    out = subprocess.run(
+        ["pgrep", "-f", "python.*-m hyprcu|hyprcu"], capture_output=True, text=True
+    ).stdout.split()
     pids = [int(p) for p in out if int(p) != me]
     for p in pids:
-        try: os.kill(p, signal.SIGTERM)
-        except ProcessLookupError: pass
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(p, signal.SIGTERM)
     print(f"stopped {len(pids)} process(es)" if pids else "nothing running")
     return 0
 
@@ -56,9 +63,11 @@ def init(*a, **k) -> int:
           '  {"command": "uv", "args": ["run", "--directory", "<repo>", "python", "-m", "hyprcu"]}')
     return 0
 def journal_cmd(*a, **k) -> int:
-    print("hyprcu has no journal (removed with the trust layer)."); return 1
+    print("hyprcu has no journal (removed with the trust layer).")
+    return 1
 def replay(*a, **k) -> int:
-    print("hyprcu has no replay (removed with the trust layer)."); return 1
+    print("hyprcu has no replay (removed with the trust layer).")
+    return 1
 
 
 _USAGE = """\
@@ -113,10 +122,12 @@ def main(argv: list[str] | None = None) -> int:
         server_main()
         return 0
     if argv[0] in ("-h", "--help"):
-        print(_USAGE, end=""); sys.exit(0)
+        print(_USAGE, end="")
+        sys.exit(0)
     if argv[0] == "--version":
         from hyprcu import __version__
-        print(f"hyprcu {__version__} (hypruse fork)"); sys.exit(0)
+        print(f"hyprcu {__version__} (hypruse fork)")
+        sys.exit(0)
     from hyprcu import verbs
     try:
         code = verbs.main(argv)

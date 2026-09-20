@@ -10,7 +10,7 @@ import os
 import pytest
 from mcp.types import TextContent
 
-from hyprcu import cli, cli_state, journal, safety, session, trust, verbs
+from hyprcu import cleanup, cli, cli_state, journal, session, trust, verbs
 from hyprcu import input as hinput
 from hyprcu import server as srv
 
@@ -24,9 +24,8 @@ def isolated(tmp_path, monkeypatch):
                 "HYPRCU_MARK", "HYPRCU_SCREENSHOT_MODE"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(session, "ensure_session_env", lambda: None)
-    monkeypatch.setattr(cli, "_take_beacon", lambda: False)
-    monkeypatch.setattr(safety, "arm", lambda: None)
-    monkeypatch.setattr(safety, "on_shutdown", lambda fn: None)
+    monkeypatch.setattr(cleanup, "arm", lambda: None)
+    monkeypatch.setattr(cleanup, "register", lambda fn: None)
     monkeypatch.setattr(trust, "_seat", {"cursor": None, "active": None})
     monkeypatch.setattr(srv, "_last_marks", {})
     monkeypatch.setattr(cli_state, "_flags", {})
@@ -520,11 +519,10 @@ def test_strict_seat_baseline_survives_between_calls(stub, monkeypatch):
     assert seen["seat"] == {"cursor": (5, 6), "active": "0x1"}
 
 
-def test_a_live_servers_beacon_is_left_alone_but_cleanup_is_armed(stub, monkeypatch):
+def test_acting_verb_arms_cleanup_and_registers_button_release(stub, monkeypatch):
     armed = []
-    monkeypatch.setattr(cli, "_take_beacon", lambda: False)
-    monkeypatch.setattr(safety, "arm", lambda: armed.append("arm"))
-    monkeypatch.setattr(safety, "on_shutdown", lambda fn: armed.append(fn))
+    monkeypatch.setattr(cleanup, "arm", lambda: armed.append("arm"))
+    monkeypatch.setattr(cleanup, "register", lambda fn: armed.append(fn))
     stub("pointer", "ok")
     verbs.main(["pointer", "click"])
     assert armed == ["arm", hinput.release_held]
@@ -532,15 +530,6 @@ def test_a_live_servers_beacon_is_left_alone_but_cleanup_is_armed(stub, monkeypa
     stub("desktop", SNAP)
     verbs.main(["desktop"])
     assert armed == []  # observation takes nothing and arms nothing
-
-
-def test_take_beacon_is_used_when_no_server_holds_it(stub, monkeypatch):
-    took = []
-    monkeypatch.setattr(cli, "_take_beacon", lambda: took.append(True) or True)
-    monkeypatch.setattr(safety, "arm", lambda: took.append("arm"))
-    stub("hypr", "on workspace 3")
-    verbs.main(["hypr", "workspace", "3"])
-    assert took == [True]  # init() armed it already; arm() is not called again
 
 
 def test_journal_entries_from_the_cli_carry_a_source_and_one_header(stub, monkeypatch,

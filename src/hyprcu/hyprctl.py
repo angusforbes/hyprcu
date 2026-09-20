@@ -565,8 +565,10 @@ def snapshot_from(
     if any("LOCK" in (m.get("solitaryBlockedBy") or []) for m in monitors):
         # first key in the dict so it is the first thing an agent reads; every
         # keystroke and click below this line lands on the lock screen
-        snap = {"SESSION_LOCKED": True, "note": "lock screen is up: input goes to the password prompt, "
-               "screenshots show only the lock UI. Ask the user to unlock before acting.", **snap}
+        snap = {"SESSION_LOCKED": True,
+                "note": "lock screen is up: input goes to the password prompt, "
+                        "screenshots show only the lock UI. Ask the user to unlock "
+                        "before acting.", **snap}
     surfaces = parse_layers(layers or {})
     if surfaces:  # token-lean: absent when there is nothing but wallpaper
         snap["layers"] = surfaces

@@ -53,7 +53,12 @@ def describe(c: dict[str, Any]) -> str:
         t = t.replace(s, "")
     t = t.strip(" ✳◑●○").strip()[:60]
     ws = (c.get("workspace") or {}).get("name", "")
-    where = f" (workspace {ws})" if ws and not str(ws).startswith("special") else " (scratchpad)" if ws else ""
+    if not ws:
+        where = ""
+    elif str(ws).startswith("special"):
+        where = " (scratchpad)"
+    else:
+        where = f" (workspace {ws})"
     return f"{t} — {APP_HINTS.get(c.get('class', ''), c.get('class', ''))}{where}"
 
 
@@ -62,8 +67,13 @@ def _kev(query: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any] | No
     return c, p, ms
 
 
-def _kev_full(query: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, float, int, dict[str, float]]:
-    """(chosen client, probability, ms, all probabilities). (None, 0, 0, {}) if kev is unreachable."""
+def _kev_full(
+    query: str, clients: list[dict[str, Any]]
+) -> tuple[dict[str, Any] | None, float, int, dict[str, float]]:
+    """(chosen client, probability, ms, all probabilities).
+
+    (None, 0, 0, {}) if kev is unreachable.
+    """
     if not clients:
         return None, 0.0, 0, {}
     if len(clients) == 1:
@@ -72,11 +82,15 @@ def _kev_full(query: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any]
     body = {
         "model": "kev",
         "state": f'The user wants to interact with: "{query}"',
-        "questions": {"w": {"type": "choice",
-                            "instructions": "Which open window best matches what the user described?",
-                            "criteria": criteria}},
+        "questions": {"w": {
+            "type": "choice",
+            "instructions": "Which open window best matches what the user described?",
+            "criteria": criteria,
+        }},
     }
-    req = urllib.request.Request(KEV_URL, json.dumps(body).encode(), {"content-type": "application/json"})
+    req = urllib.request.Request(
+        KEV_URL, json.dumps(body).encode(), {"content-type": "application/json"}
+    )
     t0 = time.time()
     try:
         with urllib.request.urlopen(req, timeout=KEV_TIMEOUT_S) as r:
@@ -99,7 +113,8 @@ def resolve(window: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any],
             raise ResolveError(f"window {q!r} not found, call desktop() for current addresses")
         return c, ""
     ql = q.lower()
-    hits = [c for c in clients if ql in str(c.get("class", "")).lower() or ql in str(c.get("title", "")).lower()]
+    hits = [c for c in clients
+            if ql in str(c.get("class", "")).lower() or ql in str(c.get("title", "")).lower()]
     if len(hits) == 1:
         return hits[0], ""
     if len(hits) > 1:
@@ -116,11 +131,15 @@ def resolve(window: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any],
         names = "; ".join(f"{h['address']} {describe(h)[:40]}" for h in hits[:6])
         raise ResolveError(f"{q!r} matches {len(hits)} windows — pass an address: {names}")
     # no substring hit: natural language over visible, mapped windows
-    visible = [c for c in clients if c.get("mapped", True) and c.get("workspace", {}).get("name") != "special:reprieve"]
+    visible = [c for c in clients if c.get("mapped", True)
+               and c.get("workspace", {}).get("name") != "special:reprieve"]
     c, p, ms = _kev(q, visible or clients)
     if c is None:
-        raise ResolveError(f"no window matches {q!r} and kev is unreachable at {KEV_URL}; pass an address from desktop()")
+        raise ResolveError(f"no window matches {q!r} and kev is unreachable at {KEV_URL}; "
+                           f"pass an address from desktop()")
     if p < KEV_GATE:
-        raise ResolveError(f"no confident match for {q!r} (kev best guess {p:.0%} < {KEV_GATE:.0%}: "
-                           f"{describe(c)[:50]}). The app may not be open — check desktop() or launch it.")
+        raise ResolveError(
+            f"no confident match for {q!r} (kev best guess {p:.0%} < {KEV_GATE:.0%}: "
+            f"{describe(c)[:50]}). The app may not be open — check desktop() or launch it."
+        )
     return c, f" [kev: {p:.0%} in {ms}ms]"
