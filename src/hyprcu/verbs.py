@@ -39,7 +39,7 @@ OWNER = ("doctor", "init", "stop", "journal", "replay", "skill")
 ALIASES = {"click-ui": "click_ui", "use-bind": "use_bind", "wait-for": "wait_for"}
 THEN = ("none", "desktop", "ui", "screenshot")
 HYPR_ACTIONS = (
-    "workspace", "focus_window", "move_window", "close_window", "fullscreen", "toggle_floating",
+    "workspace", "focus_window", "move_window", "close_window", "fullscreen", "toggle_floating", "dpms_on", "dpms_off",
 )
 WAIT_EVENTS = (
     "window_open", "window_close", "workspace", "title_change",
@@ -195,6 +195,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("target", nargs="?", default=_S, metavar="ADDR")
     a = hs.add_parser("toggle_floating", help="toggle floating on ADDR (default: active)")
     a.add_argument("target", nargs="?", default=_S, metavar="ADDR")
+    hs.add_parser("dpms_on", help="power the display on (screenshots hang while it is off)")
+    hs.add_parser("dpms_off", help="power the display off")
     for a in hs.choices.values():
         acting(a)
 

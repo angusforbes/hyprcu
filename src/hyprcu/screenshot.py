@@ -84,7 +84,22 @@ def zoom_region(x: float, y: float, size: str = "", window: str = "") -> tuple[i
     return clamp_box(x, y, w, h, (bx, by, bw, bh))
 
 
+def _dpms_off_monitors() -> list[str]:
+    """Monitors whose display is powered off. Screencopy blocks on a dark
+    output, so grim hangs until timeout and returns nothing useful."""
+    try:
+        return [m["name"] for m in hyprctl.query("monitors") if m.get("dpmsStatus") is False]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _grim(args: list[str]) -> bytes:
+    dark = _dpms_off_monitors()
+    if dark:
+        raise ScreenshotError(
+            f"display is powered off (dpms) on {', '.join(dark)}; screencopy would hang. "
+            "Wake it first: hypr(action='dpms_on') — then retry."
+        )
     if shutil.which("grim") is None:
         raise ScreenshotError("grim not found, install grim for screenshots")
     proc = subprocess.run(["grim", *args, "-"], capture_output=True, timeout=10)

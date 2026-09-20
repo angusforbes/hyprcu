@@ -237,7 +237,14 @@ def _lua_tagwindow(tag: str, window: str = "") -> str:
 # thing. Each pair lands on the SAME C++ action, so the desktop behaves
 # identically either way; the two places where the Lua defaults are not the
 # legacy ones (a silent move, a fullscreen toggle) are spelled out above.
+def _lua_dpms(mode: str = "on") -> str:
+    if mode not in ("on", "off", "toggle"):
+        raise ValueError(f"dpms mode must be on|off|toggle, got {mode!r}")
+    return f"hl.dsp.dpms({{ mode = {lua_str(mode)} }})"
+
+
 _LUA_DISPATCH = {
+    "dpms": _lua_dpms,
     "exec": _lua_exec,
     "movecursor": _lua_movecursor,
     "focuswindow": _lua_focuswindow,
@@ -430,6 +437,8 @@ def _monitor(m: dict[str, Any]) -> dict[str, Any]:
         "focused": m.get("focused", False),
         "active_workspace": m.get("activeWorkspace", {}).get("id"),
     }
+    if m.get("dpmsStatus") is False:
+        out["display"] = "off"   # screenshots will refuse; hypr(action='dpms_on') wakes it
     if int(m.get("transform", 0)):
         out["transform"] = int(m["transform"])
     return out

@@ -1009,6 +1009,8 @@ _HYPR_PLANS = {
     "close_window": "ask {target} to close",
     "fullscreen": "toggle fullscreen on {target_or_active}",
     "toggle_floating": "toggle floating on {target_or_active}",
+    "dpms_on": "power the display on",
+    "dpms_off": "power the display off",
 }
 
 
@@ -1018,7 +1020,9 @@ def hypr(action: str, target: str = "", workspace: str = "", then: str = "none")
     action='workspace' (workspace: number/name/'special:name') |
     'focus_window' (target: address) | 'move_window' (target + workspace,
     silent) | 'close_window' (target) | 'fullscreen' (target?) |
-    'toggle_floating' (target?). `then` ('desktop'|'screenshot'|'ui'|'none')
+    'toggle_floating' (target?) | 'dpms_on' / 'dpms_off' (display power;
+    screenshots cannot capture a dark display — desktop() reports it and
+    screenshot errors with a pointer here). `then` ('desktop'|'screenshot'|'ui'|'none')
     appends the result to this call."""
     safety.touch(f"hypr:{action}")
     # every argument is checked before any guard runs and before anything
@@ -1027,7 +1031,7 @@ def hypr(action: str, target: str = "", workspace: str = "", then: str = "none")
     if action not in _HYPR_PLANS:
         raise ValueError(
             f"unknown action {action!r}: workspace|focus_window|move_window|"
-            "close_window|fullscreen|toggle_floating"
+            "close_window|fullscreen|toggle_floating|dpms_on|dpms_off"
         )
     if action == "workspace" and not workspace:
         raise ValueError("workspace action needs `workspace`")
@@ -1078,6 +1082,9 @@ def hypr(action: str, target: str = "", workspace: str = "", then: str = "none")
             hyprctl.dispatch("focuswindow", _addr(target))
         hyprctl.dispatch("fullscreen", "0")
         msg = "fullscreen toggled"
+    elif action in ("dpms_on", "dpms_off"):
+        hyprctl.dispatch("dpms", action.split("_")[1])
+        msg = f"display {action.split('_')[1]}"
     else:  # toggle_floating, the last of _HYPR_PLANS
         args = (_addr(target),) if target else ()
         hyprctl.dispatch("togglefloating", *args)
