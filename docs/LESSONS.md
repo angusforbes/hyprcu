@@ -514,3 +514,12 @@ linear in option count (~330 ms/option)**, GPU at 100% the whole time.
 Fix in `~/Work/kev/kev/evaluate.py`: `m.head.to(dev).to(dtype)` in the
 quantized branch, and cast LoRA params to `dtype`. Expected: ~200 ms.
 Diagnostic that found it: same query at 2/6/13 options → 1.0/2.2/4.4 s.
+
+## 27. Screen off → grim hangs → stale screenshots
+
+`dpms: False` (display powered off by idle) makes wlr-screencopy block; grim
+hits its 10s timeout and returns nothing, or a *previous* frame. T22 read a
+finished board and declared "O wins in 0 moves". Now: `desktop()` shows
+`display off`, `screenshot` errors immediately with the fix, and
+`hypr dpms_on` wakes it. Keep an inhibitor running during long sessions —
+detached (`setsid -f systemd-inhibit …`), not from a one-shot bash call.
