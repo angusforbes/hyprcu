@@ -217,6 +217,14 @@ def _find_window(window: str, clients: list[dict[str, Any]], active: str | None)
     for c in clients:
         if c.get("address") == target:
             return c
+    if window != "active":
+        # hyprdesk: substring / natural-language target (see pick.py)
+        from hypruse import pick
+        try:
+            client, _note = pick.resolve(target, clients)
+            return client
+        except pick.ResolveError as e:
+            raise ScreenshotError(str(e)) from None
     raise ScreenshotError(
         f"window {target!r} not found, call desktop() for current addresses"
     )
