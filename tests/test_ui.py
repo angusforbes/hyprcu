@@ -1,0 +1,123 @@
+"""The `ui` tool: resolve a window, read its a11y tree, and map
+window-relative element extents to global click points."""
+
+import pytest
+
+from hypruse import server as srv
+
+
+class FakeBus:
+    pass
+
+
+@pytest.fixture
+def wired(monkeypatch):
+    monkeypatch.setattr(srv.safety, "touch", lambda *a: None)
+    monkeypatch.setattr(srv.a11y, "connect", lambda: FakeBus())
+    monkeypatch.setattr(srv.a11y, "window_frame", lambda bus, s, p, title, size: (s, p))
+    clients = [
+        {"address": "0xw", "pid": 42, "at": [100, 200], "size": [400, 200],
+         "class": "yad", "title": "T"}
+    ]
+    monkeypatch.setattr(
+        srv.hyprctl,
+        "query",
+        lambda cmd: clients if cmd == "clients" else {"address": "0xw"},
+    )
+    return monkeypatch
+
+
+def test_ui_maps_window_extent_to_global(wired):
+    wired.setattr(srv.a11y, "app_for_pid", lambda bus, pid, title: ("a", "/root"))
+    wired.setattr(
+        srv.a11y,
+        "find_elements",
+        lambda *a, **k: (
+            [{"role": "button", "name": "Save", "extent": (10, 20, 80, 40), "clickable": True}],
+            False,
+        ),
+    )
+    out = srv.ui(window="0xw")
+    # global = at + extent origin + half-size: (100+10+40, 200+20+20)
+    assert out == [{"role": "button", "name": "Save", "x": 150, "y": 240, "clickable": True}]
+
+
+def test_ui_defaults_to_active_window(wired):
+    seen = {}
+    wired.setattr(
+        srv.a11y, "app_for_pid", lambda bus, pid, title: seen.update(pid=pid) or ("a", "/root")
+    )
+    wired.setattr(srv.a11y, "find_elements", lambda *a, **k: ([], False))
+    srv.ui()  # no window -> active
+    assert seen["pid"] == 42  # resolved the active window's client
+
+
+def test_ui_no_a11y_bus_is_friendly(wired):
+    def boom():
+        raise srv.a11y.A11yError("no bus")
+
+    wired.setattr(srv.a11y, "connect", boom)
+    out = srv.ui(window="0xw")
+    assert isinstance(out, str) and "screenshot + zoom" in out
+
+
+def test_ui_app_without_tree_is_friendly(wired):
+    wired.setattr(srv.a11y, "app_for_pid", lambda *a: None)
+    out = srv.ui(window="0xw")
+    assert isinstance(out, str) and "no accessibility tree" in out
+
+
+def test_ui_no_matching_elements_is_friendly(wired):
+    wired.setattr(srv.a11y, "app_for_pid", lambda *a: ("a", "/root"))
+    wired.setattr(srv.a11y, "find_elements", lambda *a, **k: ([], False))
+    assert "no matching 'Nope'" in srv.ui(window="0xw", name="Nope")
+    assert "no actionable" in srv.ui(window="0xw")
+
+
+def test_ui_drops_elements_outside_the_window(wired):
+    # the window rect is authoritative: a widget the toolkit never laid out
+    # can report a point over some OTHER window, which must not be offered
+    wired.setattr(srv.a11y, "app_for_pid", lambda *a: ("a", "/root"))
+    wired.setattr(
+        srv.a11y,
+        "find_elements",
+        lambda *a, **k: (
+            [
+                {"role": "button", "name": "Inside", "extent": (10, 20, 80, 40),
+                 "clickable": True},
+                {"role": "button", "name": "Elsewhere", "extent": (9000, 20, 80, 40),
+                 "clickable": True},
+            ],
+            False,
+        ),
+    )
+    out = srv.ui(window="0xw")  # window is at (100,200) size 400x200
+    assert [e["name"] for e in out] == ["Inside"]
+
+
+def test_ui_truncation_is_surfaced(wired):
+    wired.setattr(srv.a11y, "app_for_pid", lambda *a: ("a", "/root"))
+    wired.setattr(srv.a11y, "find_elements", lambda *a, **k: ([], True))  # truncated
+    assert "large tree" in srv.ui(window="0xw", name="Deep")
+
+
+def test_ui_mid_walk_error_falls_back(wired):
+    # an A11yError AFTER connect() (e.g. registry GetChildren fails) must
+    # still degrade to the friendly message, not crash the tool
+    def boom(*a, **k):
+        raise srv.a11y.A11yError("registry gone")
+
+    wired.setattr(srv.a11y, "app_for_pid", boom)
+    out = srv.ui(window="0xw")
+    assert isinstance(out, str) and "screenshot + zoom" in out
+
+
+def test_resolve_window_errors(monkeypatch):
+    monkeypatch.setattr(srv.hyprctl, "query", lambda cmd: [] if cmd == "clients" else {})
+    with pytest.raises(ValueError, match="no active window"):
+        srv._resolve_window("")
+    monkeypatch.setattr(
+        srv.hyprctl, "query", lambda cmd: [] if cmd == "clients" else {"address": "0xz"}
+    )
+    with pytest.raises(ValueError, match="not found"):
+        srv._resolve_window("0xz")

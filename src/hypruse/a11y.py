@@ -1,0 +1,388 @@
+"""Accessibility tree via AT-SPI, read through the busctl CLI (no new deps).
+
+AT-SPI publishes every accessible app's widget tree on a private D-Bus (the
+"a11y bus"), independent of the display server, so it works on Wayland.
+hypruse reads it by shelling out to busctl, the same pattern as
+grim/wtype/hyprctl, and pairs it with hyprctl window geometry to turn
+window-relative element positions into global click points.
+
+Why window-relative, not screen: on Wayland an app does not know its own
+global position, so AT-SPI SCREEN coordinates come back unreliable
+(window-relative, zero-origin). WINDOW coordinates are reliable, and the
+caller adds the window's global origin (hyprctl `at`) to get a real click
+point. This module stays hyprctl-free and returns window-relative extents;
+the server does the correlation and mapping.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+from typing import Any
+
+
+class A11yError(RuntimeError):
+    """The accessibility bus is unreachable or a busctl call failed."""
+
+
+_ACCESSIBLE = "org.a11y.atspi.Accessible"
+_COMPONENT = "org.a11y.atspi.Component"
+_ACTION = "org.a11y.atspi.Action"
+_TEXT = "org.a11y.atspi.Text"
+_VALUE = "org.a11y.atspi.Value"
+_REGISTRY_SVC = "org.a11y.atspi.Registry"
+_ROOT = "/org/a11y/atspi/accessible/root"
+_DBUS = ("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus")
+
+COORD_WINDOW = 1  # ATSPI_COORD_TYPE_WINDOW: extents relative to the toplevel
+
+# AtspiStateType bit positions (GetState returns a 2-word uint32 bitfield)
+_STATE_ENABLED, _STATE_SENSITIVE, _STATE_SHOWING, _STATE_VISIBLE = 8, 24, 25, 30
+_STATE_FOCUSED = 12
+
+PASSWORD_ROLE = 40  # AtspiRole PASSWORD_TEXT: never read, never type without consent
+
+# Window-relative coordinates beyond this are toolkit noise, not geometry
+_EXTENT_SANITY = 20000
+
+# Roles whose CURRENT VALUE is worth reading, and how to read it. Reading is
+# gated on role so the common case (find a button) costs no extra busctl
+# calls. PASSWORD_TEXT (40) is deliberately absent: never read its contents.
+_STATE_CHECKED, _STATE_PRESSED = 4, 20
+_CHECKABLE_ROLES = frozenset({7, 8, 44, 45, 62})  # check box/menu item, radio, toggle
+_TEXT_ROLES = frozenset({61, 79})  # text, entry
+_VALUE_ROLES = frozenset({51, 52})  # slider, spin button
+_MAX_TEXT = 200  # a text area can hold a whole document; report a readable head
+_VALUE_BEARING_ROLES = _CHECKABLE_ROLES | _TEXT_ROLES | _VALUE_ROLES
+
+# Roles worth clicking or typing into, as AtspiRole ENUM NUMBERS (from
+# GetRole). Numbers are matched, not GetRoleName strings, because the role
+# name varies by toolkit (GTK reports a push button (enum 43) as "button",
+# Qt as "push button") while the number is standardized.
+ACTIONABLE_ROLE_NUMS = frozenset(
+    {
+        7,  # check box
+        8,  # check menu item
+        11,  # combo box
+        33,  # menu
+        35,  # menu item
+        37,  # page tab
+        40,  # password text
+        43,  # push button
+        44,  # radio button
+        45,  # radio menu item
+        51,  # slider
+        52,  # spin button
+        62,  # toggle button
+        79,  # entry
+        88,  # link
+    }
+)
+
+
+def _busctl(address: str, verb: str, *args: str) -> Any:
+    if shutil.which("busctl") is None:
+        raise A11yError("busctl not found, install systemd for accessibility support")
+    # the GetAddress broker lives on the session bus (--user); the a11y tree
+    # itself lives on the private bus reached with --address
+    where = ["--address", address] if address else ["--user"]
+    argv = ["busctl", "--json=short", *where, verb, *args]
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired as exc:
+        raise A11yError(f"busctl {verb} timed out (unresponsive app?)") from exc
+    if proc.returncode != 0:
+        raise A11yError(f"busctl {verb} failed: {proc.stderr.strip() or proc.stdout.strip()}")
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise A11yError(f"unparseable busctl output: {proc.stdout[:200]!r}") from exc
+
+
+def bus_address() -> str:
+    """Ask the session-bus broker for the private accessibility bus address.
+    Raises A11yError if no a11y bus is running (no accessible apps)."""
+    out = _busctl("", "call", "org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus", "GetAddress")
+    data = out.get("data") or []
+    if not data or not data[0]:
+        raise A11yError("accessibility bus reported no address (no accessible apps?)")
+    return str(data[0])
+
+
+class Bus:
+    """A connection to the a11y bus: every AT-SPI object is a (service,
+    object-path) pair reached with these two calls."""
+
+    def __init__(self, address: str):
+        self.address = address
+
+    def call(self, svc: str, path: str, iface: str, method: str, *sig_args: str) -> list[Any]:
+        """Return the method's out-args as a list (data[0] is the first)."""
+        return _busctl(self.address, "call", svc, path, iface, method, *sig_args)["data"]
+
+    def prop(self, svc: str, path: str, iface: str, name: str) -> Any:
+        """A property value (busctl returns it directly, not list-wrapped)."""
+        return _busctl(self.address, "get-property", svc, path, iface, name)["data"]
+
+    def conn_pid(self, svc: str) -> int | None:
+        try:
+            return int(self.call(*_DBUS, "GetConnectionUnixProcessID", "s", svc)[0])
+        except (A11yError, ValueError, IndexError):
+            return None
+
+
+def connect() -> Bus:
+    return Bus(bus_address())
+
+
+def apps(bus: Bus) -> list[tuple[str, str]]:
+    """Every registered application's root accessible, as (service, path)."""
+    children = bus.call(_REGISTRY_SVC, _ROOT, _ACCESSIBLE, "GetChildren")[0]
+    return [(svc, path) for svc, path in children]
+
+
+def app_for_pid(bus: Bus, pid: int, title: str = "") -> tuple[str, str] | None:
+    """The application accessible whose connection PID matches the window
+    (exact for single-process apps). Falls back to matching a frame's name
+    to the window title, which covers multi-process apps (e.g. Electron/Qt
+    whose a11y connection PID differs from the window PID)."""
+    registered = apps(bus)
+    for svc, path in registered:
+        if bus.conn_pid(svc) == pid:
+            return (svc, path)
+    if title:
+        for svc, path in registered:
+            if _has_frame_named(bus, svc, path, title):
+                return (svc, path)
+    return None
+
+
+def _has_frame_named(bus: Bus, svc: str, path: str, title: str) -> bool:
+    return any(_name(bus, cs, cp) == title for cs, cp in _children(bus, svc, path))
+
+
+def window_frame(
+    bus: Bus,
+    app_svc: str,
+    app_path: str,
+    title: str = "",
+    size: tuple[int, int] | None = None,
+) -> tuple[str, str]:
+    """The app's toplevel matching a SPECIFIC window (by accessible name ==
+    title, then by extent size), so a multi-window app's OTHER windows are
+    not walked and mapped with the wrong origin. Returns the app root when
+    there is a single toplevel or no confident match (walking from the root
+    is then correct or the best available)."""
+    frames = _children(bus, app_svc, app_path)
+    if len(frames) <= 1:
+        return (app_svc, app_path)
+    if title:
+        for fs, fp in frames:
+            if _name(bus, fs, fp) == title:
+                return (fs, fp)
+    if size:
+        for fs, fp in frames:
+            ext = _window_extents(bus, fs, fp)
+            if ext and (ext[2], ext[3]) == tuple(size):
+                return (fs, fp)
+    return (app_svc, app_path)
+
+
+def _name(bus: Bus, svc: str, path: str) -> str:
+    try:
+        return str(bus.prop(svc, path, _ACCESSIBLE, "Name") or "")
+    except A11yError:
+        return ""
+
+
+def _role_num(bus: Bus, svc: str, path: str) -> int:
+    try:
+        return int(bus.call(svc, path, _ACCESSIBLE, "GetRole")[0])
+    except (A11yError, IndexError, ValueError):
+        return -1
+
+
+def _role_name(bus: Bus, svc: str, path: str) -> str:
+    try:
+        return str(bus.call(svc, path, _ACCESSIBLE, "GetRoleName")[0])
+    except (A11yError, IndexError):
+        return ""
+
+
+def _children(bus: Bus, svc: str, path: str) -> list[tuple[str, str]]:
+    try:
+        return [(cs, cp) for cs, cp in bus.call(svc, path, _ACCESSIBLE, "GetChildren")[0]]
+    except (A11yError, IndexError, ValueError):
+        return []
+
+
+def _window_extents(bus: Bus, svc: str, path: str) -> tuple[int, int, int, int] | None:
+    """Window-relative extents, or None when the widget has no usable
+    geometry. Toolkits report degenerate or wild extents for things that are
+    not rendered (GTK notebook scroll arrows come back 8x0; widgets on an
+    unrendered tab page report absurd origins), and those must not be
+    offered as click targets."""
+    try:
+        x, y, w, h = bus.call(svc, path, _COMPONENT, "GetExtents", "u", str(COORD_WINDOW))[0]
+        x, y, w, h = int(x), int(y), int(w), int(h)
+    except (A11yError, IndexError, ValueError):
+        return None
+    if w <= 0 or h <= 0:
+        return None
+    if not (-_EXTENT_SANITY <= x <= _EXTENT_SANITY and -_EXTENT_SANITY <= y <= _EXTENT_SANITY):
+        return None
+    return x, y, w, h
+
+
+def _states(bus: Bus, svc: str, path: str) -> set[int]:
+    try:
+        words = bus.call(svc, path, _ACCESSIBLE, "GetState")[0]
+    except (A11yError, IndexError):
+        return set()
+    out: set[int] = set()
+    for wi, word in enumerate(words):
+        for bit in range(32):
+            if word >> bit & 1:
+                out.add(wi * 32 + bit)
+    return out
+
+
+def _interfaces(bus: Bus, svc: str, path: str) -> set[str]:
+    """Short interface names the object supports, so Text/Value are only
+    called where they exist (calling them blind raises UnknownMethod)."""
+    try:
+        return {i.rsplit(".", 1)[-1] for i in bus.call(svc, path, _ACCESSIBLE, "GetInterfaces")[0]}
+    except (A11yError, IndexError, TypeError):
+        return set()
+
+
+def element_value(bus: Bus, svc: str, path: str, role: int, states: set[int]) -> dict[str, Any]:
+    """The element's CURRENT VALUE, as opposed to its label: what is typed
+    into it, where a slider sits, whether a box is ticked. Returns the keys
+    that apply ({} for a plain button), because the accessible name alone
+    says a control called "Volume" exists without saying it is at 66%.
+
+    Gated on role: checkable state is free (already in `states`), Text and
+    Value cost one call each and only for roles that can carry them. A
+    password field's contents are never read."""
+    if role in _CHECKABLE_ROLES:
+        return {"checked": _STATE_CHECKED in states or _STATE_PRESSED in states}
+    if role in _TEXT_ROLES:
+        if "Text" not in _interfaces(bus, svc, path):
+            return {}
+        try:
+            count = int(bus.prop(svc, path, _TEXT, "CharacterCount"))
+            if count <= 0:
+                return {"value": ""}
+            end = min(count, _MAX_TEXT)
+            text = str(bus.call(svc, path, _TEXT, "GetText", "ii", "0", str(end))[0])
+            return {"value": text + ("..." if count > end else "")}
+        except (A11yError, IndexError, ValueError, TypeError):
+            return {}
+    if role in _VALUE_ROLES:
+        if "Value" not in _interfaces(bus, svc, path):
+            return {}
+        try:
+            current = float(bus.prop(svc, path, _VALUE, "CurrentValue"))
+            low = float(bus.prop(svc, path, _VALUE, "MinimumValue"))
+            high = float(bus.prop(svc, path, _VALUE, "MaximumValue"))
+        except (A11yError, ValueError, TypeError):
+            return {}
+        out: dict[str, Any] = {"value": current}
+        if high > low:  # raw units are toolkit-specific; a percent is readable
+            out["percent"] = round((current - low) / (high - low) * 100)
+        return out
+    return {}
+
+
+def _clickable_now(states: set[int]) -> bool:
+    """Showing, visible, and responsive to input. SENSITIVE and ENABLED
+    overlap but toolkits do not set them together (GTK notebook tabs report
+    SENSITIVE without ENABLED yet click fine), so either satisfies the
+    responsive half rather than requiring both."""
+    if not {_STATE_SHOWING, _STATE_VISIBLE} <= states:
+        return False
+    return _STATE_SENSITIVE in states or _STATE_ENABLED in states
+
+
+def find_elements(
+    bus: Bus,
+    app_svc: str,
+    app_path: str,
+    name: str = "",
+    actionable: bool = True,
+    max_nodes: int = 400,
+    max_results: int = 60,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Depth-first over a window's subtree, returning (matching elements,
+    truncated). Elements carry WINDOW-relative extents (the caller adds the
+    window origin). Filters by `name` substring (case-insensitive) and, when
+    `actionable`, to interactive roles. `truncated` is True when the walk hit
+    the max_nodes budget before exhausting the tree, so the caller can tell
+    'nothing there' from 'stopped early' instead of reporting a false
+    absence."""
+    needle = name.lower()
+    results: list[dict[str, Any]] = []
+    stack: list[tuple[str, str]] = [(app_svc, app_path)]
+    visited = 0
+    while stack and visited < max_nodes and len(results) < max_results:
+        svc, path = stack.pop()
+        visited += 1
+        nm = _name(bus, svc, path)
+        kids = _children(bus, svc, path)
+        stack.extend(reversed(kids))  # keep document order under a LIFO stack
+        if needle and needle not in nm.lower():
+            continue
+        role_num = _role_num(bus, svc, path)  # also gates the value read below
+        if actionable and role_num not in ACTIONABLE_ROLE_NUMS:
+            continue
+        if not nm and not needle and role_num not in _VALUE_BEARING_ROLES:
+            # unnamed and valueless: nothing to target or report. An unnamed
+            # slider or checkbox still carries a reading worth returning.
+            continue
+        ext = _window_extents(bus, svc, path)
+        if ext is None:
+            continue
+        states = _states(bus, svc, path)
+        results.append(
+            {
+                "role": _role_name(bus, svc, path),
+                "name": nm,
+                "extent": ext,
+                "clickable": _clickable_now(states),
+                **element_value(bus, svc, path, role_num, states),
+                "svc": svc,
+                "path": path,
+            }
+        )
+    truncated = visited >= max_nodes and bool(stack) and len(results) < max_results
+    return results, truncated
+
+
+def focused_role(bus: Bus, app_svc: str, app_path: str, max_nodes: int = 200) -> int | None:
+    """The AtspiRole number of the element that currently holds keyboard
+    focus in this window, or None if none is found within the node budget.
+    Bounded because it runs before typing: a fast, best-effort check for the
+    auth guard, not an exhaustive walk. Prunes into non-showing subtrees so
+    it does not spend the budget on hidden pages."""
+    stack: list[tuple[str, str]] = [(app_svc, app_path)]
+    visited = 0
+    while stack and visited < max_nodes:
+        svc, path = stack.pop()
+        visited += 1
+        states = _states(bus, svc, path)
+        if _STATE_FOCUSED in states:
+            return _role_num(bus, svc, path)
+        if _STATE_SHOWING in states or (svc, path) == (app_svc, app_path):
+            stack.extend(reversed(_children(bus, svc, path)))
+    return None
+
+
+def do_action(bus: Bus, svc: str, path: str, index: int = 0) -> bool:
+    """Invoke an accessible's action (default index 0, usually the click),
+    with no pointer, so it works even when the window is not visible."""
+    try:
+        return bool(bus.call(svc, path, _ACTION, "DoAction", "i", str(index))[0])
+    except (A11yError, IndexError):
+        return False
