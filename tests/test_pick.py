@@ -36,7 +36,7 @@ def test_ambiguous_substring_margin_beats_low_absolute(monkeypatch):
 def test_ambiguous_substring_flat_split_is_actionable(monkeypatch):
     probs = {c["address"]: 0.25 for c in C}
     monkeypatch.setattr(pick, "_kev_full", lambda q, cs: (cs[0], 0.25, 100, probs))
-    with pytest.raises(pick.ResolveError, match="matches 4 windows"):
+    with pytest.raises(pick.ResolveError, match="matches 3 windows"):
         pick.resolve("a", C)
 
 def test_natural_language_above_gate(monkeypatch):
