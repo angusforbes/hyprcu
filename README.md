@@ -19,16 +19,34 @@ Wayland/Hyprland primitives intact. Companion to
 
 ## What's replaced with no-op stubs
 
-`trust.py`, `journal.py`, `safety.py` — same public names, every guard passes,
+`trust.py`, `journal.py`, `safety.py`, `skill.py` — same public names, every guard passes,
 every log call is a no-op. `server.py` didn't need a single edit.
 
 ## What's removed
 
-`cli.py`, `verbs.py`, `skill.py`, `cli_state.py`, `waybar/`, `packaging/`.
+`waybar/`, `packaging/`, and upstream's `init` wizard, `journal`/`replay`
+commands and skill installer.
+
+## CLI (shell verbs) — kept
+
+Every MCP tool is also a shell verb, ~150ms per fresh process, for agents
+that only have bash (Codex, Claude Code in a terminal, scripts):
+
+    hyprdesk                                  # no args = MCP server on stdio
+    hyprdesk desktop                          # one line per monitor/workspace/window
+    hyprdesk screenshot --window 0x…          # prints path + {"geometry","scale",…}
+    hyprdesk hypr focus_window 0x…
+    hyprdesk pointer click 800 60
+    hyprdesk keyboard type "hello" --window 0x…
+    hyprdesk sequence '[{"op":"keyboard","action":"type","text":"x"},…]'
+    hyprdesk doctor                           # check binaries + session
+    hyprdesk stop                             # kill any running server/verb
+
+Exit codes: 0 delivered · 1 error · 2 usage · 4 nothing to act on.
 
 ## Tests
 
-`uv run pytest tests/ --ignore=tests/test_e2e.py` → 320 passed, 32 xfailed.
+`uv run pytest tests/ --ignore=tests/test_e2e.py` → 356 passed, 44 xfailed.
 The xfails are enumerated in `tests/removed_guard_tests.txt`; each asserts
 that a guard refuses something. They are `strict`, so a guard silently
 coming back would fail the suite.

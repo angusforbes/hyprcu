@@ -26,7 +26,7 @@ dependencies = ["mcp>=1.2,<2"]
 Homepage = "https://github.com/angusforbes/hyprdesk"
 
 [project.scripts]
-hyprdesk = "hypruse.server:main"
+hyprdesk = "hypruse.cli:main"
 
 [build-system]
 requires = ["hatchling"]

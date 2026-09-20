@@ -54,3 +54,21 @@ def session_locked() -> bool:
 
 def covering_layer(x: Any, y: Any) -> None:
     return None
+
+
+def marking_on() -> bool:
+    return False
+
+
+# cross-process seat baseline for the CLI verbs; nothing to carry here
+def export_state() -> dict:
+    # shape cli_state.py merges across processes; empty but well-formed
+    return {"owned": [], "seat": {"cursor": None, "active": None}, "notify_ts": 0.0}
+
+
+def restore_state(state: dict) -> None: ...
+
+
+# module state upstream tests reset between runs; inert here
+_owned: set = set()
+_seat: dict = {"cursor": None, "active": None}
