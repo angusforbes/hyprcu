@@ -1,6 +1,6 @@
 import struct
 
-from hypruse import wire
+from hyprcu import wire
 
 
 def test_wl_string_padding():

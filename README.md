@@ -1,10 +1,10 @@
-# hyprdesk
+# hyprcu
 
-Dialog-free computer use for Hyprland. A fork of
-[hypruse](https://github.com/IlyasKhallouki/hypruse) (MIT, IlyasKhallouki)
+**Hyprland computer use.** Dialog-free desktop control for AI agents: an MCP
+server and a CLI over the same primitives. A fork of
+[hypruse](https://github.com/IlyasKhallouki/hypruse) (MIT, IlyasKhallouki) — see [Lineage](#lineage)
 with the trust, journal, safety-beacon and CLI layers removed, keeping the
-Wayland/Hyprland primitives intact. Companion to
-[pi-omarchy-computer-use](https://github.com/angusforbes/pi-omarchy-computer-use).
+Wayland/Hyprland primitives intact. App knowledge and tooling live in `docs/` and `tools/`.
 
 ## What's kept (byte-identical to upstream)
 
@@ -32,15 +32,15 @@ commands and skill installer.
 Every MCP tool is also a shell verb, ~150ms per fresh process, for agents
 that only have bash (Codex, Claude Code in a terminal, scripts):
 
-    hyprdesk                                  # no args = MCP server on stdio
-    hyprdesk desktop                          # one line per monitor/workspace/window
-    hyprdesk screenshot --window 0x…          # prints path + {"geometry","scale",…}
-    hyprdesk hypr focus_window 0x…
-    hyprdesk pointer click 800 60
-    hyprdesk keyboard type "hello" --window 0x…
-    hyprdesk sequence '[{"op":"keyboard","action":"type","text":"x"},…]'
-    hyprdesk doctor                           # check binaries + session
-    hyprdesk stop                             # kill any running server/verb
+    hyprcu                                  # no args = MCP server on stdio
+    hyprcu desktop                          # one line per monitor/workspace/window
+    hyprcu screenshot --window 0x…          # prints path + {"geometry","scale",…}
+    hyprcu hypr focus_window 0x…
+    hyprcu pointer click 800 60
+    hyprcu keyboard type "hello" --window 0x…
+    hyprcu sequence '[{"op":"keyboard","action":"type","text":"x"},…]'
+    hyprcu doctor                           # check binaries + session
+    hyprcu stop                             # kill any running server/verb
 
 Exit codes: 0 delivered · 1 error · 2 usage · 4 nothing to act on.
 
@@ -54,7 +54,7 @@ coming back would fail the suite.
 ## Run
 
     uv sync
-    uv run python -m hypruse        # MCP server on stdio
+    uv run python -m hyprcu        # MCP server on stdio
 
 Tools: desktop, screenshot, zoom, ui, marks, binds, wait_for, pointer,
 keyboard, click_ui, hypr, launch, use_bind, sequence.
@@ -71,7 +71,7 @@ The a11y tools are only as good as the apps' trees. On this desktop, today,
 they're mostly empty. `sequence`, `launch`, `wait_for` and the unified
 pointer are the real gains.
 
-## What hyprdesk adds (the parts that are ours)
+## What hyprcu adds (the parts that are ours)
 
 **`pick.py` — natural-language window targeting.** Every `window` argument
 (hypr, pointer, keyboard, screenshot, ui, click_ui…) accepts an address, a
@@ -81,16 +81,16 @@ tie-broken by kev. Below `KEV_GATE` (0.5) it fails with "the app may not be
 open — check desktop() or launch it", which has been right every time so far.
 Results carry `[kev: 99% in 229ms]` so you can see when it was used.
 
-    hyprdesk hypr focus_window "the file browser"
-    hyprdesk keyboard type "hello" --window "the shell on workspace 2"
+    hyprcu hypr focus_window "the file browser"
+    hyprcu keyboard type "hello" --window "the shell on workspace 2"
 
 **Window-relative clicks.** `pointer` takes `window` + `x_pct`/`y_pct`
 (0.0–1.0); the window is focused first and the fraction is mapped to its
 current geometry, so the click survives moves and resizes. CLI:
-`hyprdesk pointer click --in "Strata" --at 0.053 0.23`.
+`hyprcu pointer click --in "Strata" --at 0.053 0.23`.
 
 **`journal.py` — training log.** Acting tools append one JSONL row to
-`~/.local/share/hyprdesk/actions.jsonl` (`HYPRDESK_LOG=0` disables): args,
+`~/.local/share/hyprcu/actions.jsonl` (`HYPRCU_LOG=0` disables): args,
 the window list at the time, result, and — when kev chose — query and
 probability. Rows are unlabelled; a `correct` field is meant to be added
 later before anything is trained on them.
@@ -101,7 +101,7 @@ targeting still work; descriptions fail with an explicit message.
 
 ## No built-in judgement (2026-09-20)
 
-hyprdesk does what it's asked. Checks and controls belong in the caller, not
+hyprcu does what it's asked. Checks and controls belong in the caller, not
 here. Removed from upstream's *acting* tools, beyond the trust layer:
 
 | was | now |
@@ -123,11 +123,21 @@ Verified against the live MCP wire, not just the source:
   the stub's class definition.
 - Server `instructions` (what the model reads at connect): 0 gating terms.
 - Tool descriptions: the three `allow_auth=true overrides the refusal…`
-  sentences, "panic-kill guarantees", and "Refused while HYPRUSE_CONFINE"
+  sentences, "panic-kill guarantees", and "Refused while HYPRCU_CONFINE"
   removed. Remaining "confirm" is "screenshot to confirm the click worked".
 - `allow_auth` is still an accepted boolean on pointer/keyboard/click_ui —
   it flows only into no-op stubs, FastMCP emits it with no description, and
   8 upstream tests pass it. Left in to keep server.py logic identical to
   upstream; harmless.
-- `HYPRUSE_READONLY=1` still works as an opt-in "observe only" mode (hides
+- `HYPRCU_READONLY=1` still works as an opt-in "observe only" mode (hides
   acting tools). Nothing sets it by default.
+
+## Lineage
+
+hyprcu is a fork of [hypruse](https://github.com/IlyasKhallouki/hypruse) by
+IlyasKhallouki (MIT). The Wayland/Hyprland primitives — `wire.py` (virtual
+pointer), `a11y.py`, `events.py`, `hyprctl.py`, `input.py`, `screenshot.py`
+and the MCP `server.py` — are his work, kept close to upstream so fixes can be
+merged. hyprcu removes the trust/journal/safety layers and every built-in
+refusal, and adds kev-based natural-language targeting, window-relative
+coordinates, and a training log. Upstream reference checkout: `~/Work/hypruse`.

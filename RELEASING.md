@@ -10,8 +10,8 @@ accounts/credentials; the rest is automated.
 2. **[you] PyPI Trusted Publisher:** on PyPI, add a *pending* publisher so
    the first `release` workflow run can publish without a token
    (https://pypi.org/manage/account/publishing/):
-   - Project: `hypruse`
-   - Owner: `IlyasKhallouki`  · Repo: `hypruse`
+   - Project: `hyprcu`
+   - Owner: `IlyasKhallouki`  · Repo: `hyprcu`
    - Workflow: `release.yml`  · Environment: `pypi`
 3. **[you] AUR SSH key:** add your public key at
    https://aur.archlinux.org/account, if not already done.
@@ -19,8 +19,8 @@ accounts/credentials; the rest is automated.
 ## Cutting a release
 
 1. Bump the version in ALL THREE of `pyproject.toml` (`version`, feeds the
-   PyPI/tag build), `src/hypruse/__init__.py` (`__version__`, feeds
-   `hypruse --version`), and `server.json` (`version` *and*
+   PyPI/tag build), `src/hyprcu/__init__.py` (`__version__`, feeds
+   `hyprcu --version`), and `server.json` (`version` *and*
    `packages[0].version`, the MCP registry entry); a test guards that they
    agree. Move the CHANGELOG `[Unreleased]` entries under the new version.
 2. Tag and push:
@@ -31,26 +31,26 @@ accounts/credentials; the rest is automated.
    The `release` workflow builds, publishes to PyPI via OIDC, publishes
    `server.json` to the MCP registry (also OIDC, after waiting for the
    release to land on PyPI), and cuts a GitHub release with the artifacts.
-3. Verify: `uvx hypruse --version`, and the registry entry:
+3. Verify: `uvx hyprcu --version`, and the registry entry:
    ```sh
-   curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.IlyasKhallouki/hypruse"
+   curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.IlyasKhallouki/hyprcu"
    ```
 
 ## AUR
 
-Stable (`packaging/aur/hypruse/`), after the tag exists:
+Stable (`packaging/aur/hyprcu/`), after the tag exists:
 
 ```sh
-cd packaging/aur/hypruse
+cd packaging/aur/hyprcu
 updpkgsums                     # fills the real sha256 for the tag tarball
 makepkg --printsrcinfo > .SRCINFO
 # push to the AUR remote:
-#   git clone ssh://aur@aur.archlinux.org/hypruse.git
+#   git clone ssh://aur@aur.archlinux.org/hyprcu.git
 #   copy PKGBUILD + .SRCINFO in, commit, push
 ```
 
-`hypruse-git` never needs `updpkgsums` (VCS source); regenerate its
-`.SRCINFO` the same way and push to `ssh://aur@aur.archlinux.org/hypruse-git.git`.
+`hyprcu-git` never needs `updpkgsums` (VCS source); regenerate its
+`.SRCINFO` the same way and push to `ssh://aur@aur.archlinux.org/hyprcu-git.git`.
 
 ## Listings (after public + first release)
 

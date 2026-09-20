@@ -1,6 +1,6 @@
 import pytest
 
-from hypruse import hyprctl
+from hyprcu import hyprctl
 
 
 @pytest.mark.parametrize(

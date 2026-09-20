@@ -3,7 +3,7 @@ keystrokes never land in whatever happens to hold focus."""
 
 import pytest
 
-from hypruse import server as srv
+from hyprcu import server as srv
 
 
 @pytest.fixture
@@ -110,7 +110,7 @@ def test_keyboard_refused_under_a_lock_screen(stub, monkeypatch):
 
 
 def test_lock_screen_never_absorbs_a_window_targeted_secret(stub, monkeypatch):
-    # HYPRUSE_AUTH_GUARD=strict's documented way to fill a browser login
+    # HYPRCU_AUTH_GUARD=strict's documented way to fill a browser login
     # is keyboard(type, window=0xbrowser, allow_auth=true); if an idle
     # timeout maps hyprlock in between, that secret must NOT be typed into
     # the lock prompt just because allow_auth was set for the browser
@@ -125,7 +125,7 @@ def test_windowless_launcher_typing_refused_under_confinement(stub, monkeypatch)
     # a launcher executes whatever is typed into it, so under confinement
     # this is arbitrary out-of-scope execution: the same escape use_bind
     # is refused for
-    monkeypatch.setenv("HYPRUSE_CONFINE", "class:kitty")
+    monkeypatch.setenv("HYPRCU_CONFINE", "class:kitty")
     _with_layers(monkeypatch, LAUNCHER_LAYERS)
     with pytest.raises(srv.trust.TrustError, match="cannot be confined"):
         srv.keyboard("type", text="malicious-command")
@@ -179,7 +179,7 @@ def test_ext_session_lock_refuses_window_target_despite_allow_auth(stub, monkeyp
 
 
 def test_ext_session_lock_refuses_confined_typing_despite_allow_auth(stub, monkeypatch):
-    monkeypatch.setenv("HYPRUSE_CONFINE", "class:kitty")
+    monkeypatch.setenv("HYPRCU_CONFINE", "class:kitty")
     monkeypatch.setattr(srv.trust, "session_locked", lambda: "hyprlock")
     with pytest.raises(srv.trust.TrustError, match="confinable window"):
         srv.keyboard("type", text="secret", allow_auth=True)
@@ -190,7 +190,7 @@ def test_windowless_keyboard_fails_closed_when_compositor_unreadable(stub, monke
     # under confinement, a windowless type whose active window cannot be
     # resolved because hyprctl is DOWN must refuse (the wire delivers keys
     # even when hyprctl is down), not skip the confinement check and type
-    monkeypatch.setenv("HYPRUSE_CONFINE", "class:kitty")
+    monkeypatch.setenv("HYPRCU_CONFINE", "class:kitty")
 
     def boom(cmd):
         raise srv.hyprctl.HyprctlError("hyprctl timed out")
@@ -205,7 +205,7 @@ def test_password_field_refusal_does_not_move_focus_first(stub, monkeypatch):
     # the a11y focused-role read is per-pid, so the strict password-field
     # refusal must happen BEFORE focuswindow: a refused call must not have
     # moved the human's focus on its way out
-    monkeypatch.setenv("HYPRUSE_AUTH_GUARD", "strict")
+    monkeypatch.setenv("HYPRCU_AUTH_GUARD", "strict")
     monkeypatch.setattr(srv.a11y, "connect", lambda: object())
     monkeypatch.setattr(srv.a11y, "app_for_pid", lambda *a: ("svc", "/p"))
     monkeypatch.setattr(srv.a11y, "focused_role", lambda *a: srv.a11y.PASSWORD_ROLE)
@@ -218,7 +218,7 @@ def test_password_field_refusal_does_not_move_focus_first(stub, monkeypatch):
 def test_keyboard_confinement_wiring_refuses_out_of_scope_active_window(monkeypatch):
     # integration: the guard_client call site is real, not stubbed, so a
     # windowless type whose ACTIVE window is out of scope is refused
-    monkeypatch.setenv("HYPRUSE_CONFINE", "class:kitty")
+    monkeypatch.setenv("HYPRCU_CONFINE", "class:kitty")
     monkeypatch.setattr(srv.safety, "touch", lambda *a: None)
     active = {"address": "0xff", "class": "firefox", "title": "t", "pid": 9,
               "at": [0, 0], "size": [10, 10], "workspace": {"id": 1}}

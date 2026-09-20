@@ -1,6 +1,6 @@
 """Thin layer over Hyprland's hyprctl IPC.
 
-Everything hypruse knows about the desktop comes through here, and every
+Everything hyprcu knows about the desktop comes through here, and every
 workspace/window action goes back out through dispatch(). It shells out to
 the hyprctl binary rather than opening the .socket directly so behaviour
 always matches what the user's own shell would do.
@@ -12,7 +12,7 @@ keyword` is refused outright. It is chosen by the config file's EXTENSION,
 so it is not something a version check can answer. provider() probes it and
 the rest of this module speaks whichever language came back.
 
-Coordinates everywhere in hypruse are Hyprland's global *logical* layout
+Coordinates everywhere in hyprcu are Hyprland's global *logical* layout
 coordinates, the same space `hyprctl cursorpos`, client `at`, and cursor
 positioning use.
 """
@@ -25,7 +25,7 @@ import shutil
 import subprocess
 from typing import Any
 
-from hypruse import journal
+from hyprcu import journal
 
 
 class HyprctlError(RuntimeError):
@@ -34,7 +34,7 @@ class HyprctlError(RuntimeError):
 
 def _run(*args: str) -> str:
     if shutil.which("hyprctl") is None:
-        raise HyprctlError("hyprctl not found, hypruse needs a running Hyprland session")
+        raise HyprctlError("hyprctl not found, hyprcu needs a running Hyprland session")
     try:
         proc = subprocess.run(
             ["hyprctl", *args], capture_output=True, text=True, timeout=5
@@ -108,7 +108,7 @@ def parse_provider(out: str) -> str:
     manager in 0.56, and an older compositor answers the plain string
     "unknown request" with exit code 0, which is exactly the session that
     wants the legacy strings; so does a reply with a provider name this
-    version of hypruse has never heard of, since legacy is the only other
+    version of hyprcu has never heard of, since legacy is the only other
     language it can speak."""
     try:
         return LUA if json.loads(out).get("configProvider") == LUA else HYPRLANG
@@ -139,7 +139,7 @@ def provider() -> str:
 
 def forget_provider() -> None:
     """Drop the cached probe, so the next call re-reads it. A session can
-    change manager while hypruse is running: `hyprctl reload full-reset`
+    change manager while hyprcu is running: `hyprctl reload full-reset`
     re-picks it from the config file's extension, and entering safe mode
     forces the Lua one."""
     global _provider
@@ -148,7 +148,7 @@ def forget_provider() -> None:
 
 # --- Lua ---------------------------------------------------------------------
 
-# Everything hypruse sends on the Lua path is built by the helpers below and
+# Everything hyprcu sends on the Lua path is built by the helpers below and
 # never by an f-string over raw input. `hyprctl dispatch` hands its argument
 # to the compositor's own interpreter as an EXPRESSION, with the standard
 # library open, so an unescaped argument is not a syntax error to shrug at:
@@ -233,7 +233,7 @@ def _lua_tagwindow(tag: str, window: str = "") -> str:
     return f"hl.dsp.window.tag({{ tag = {lua_str(tag)}{target} }})"
 
 
-# Every dispatcher hypruse emits, and the Lua expression that does the same
+# Every dispatcher hyprcu emits, and the Lua expression that does the same
 # thing. Each pair lands on the SAME C++ action, so the desktop behaves
 # identically either way; the two places where the Lua defaults are not the
 # legacy ones (a silent move, a fullscreen toggle) are spelled out above.
@@ -258,7 +258,7 @@ def lua_dispatch(name: str, args: tuple[str, ...] = ()) -> str:
     if build is None:
         raise HyprctlError(
             f"dispatch {name}: this session runs the Lua config manager, which does "
-            "not speak the legacy dispatcher strings, and hypruse has no Lua form "
+            "not speak the legacy dispatcher strings, and hyprcu has no Lua form "
             f"for {name!r}"
         )
     try:
@@ -376,7 +376,7 @@ def cursor_pos() -> tuple[int, int]:
 
 def logical_rect(m: dict[str, Any]) -> tuple[int, int, int, int]:
     """A monitor's rect in global logical coordinates (the one space
-    everything else in hypruse uses). hyprctl reports width/height as
+    everything else in hyprcu uses). hyprctl reports width/height as
     physical mode pixels, so the logical footprint is size/scale, with
     the axes swapped by 90/270-degree transforms (odd transform values).
     This is the single source of truth for monitor geometry."""

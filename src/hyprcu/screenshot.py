@@ -1,6 +1,6 @@
 """Screenshots via grim (wlroots screencopy).
 
-grim captures in *pixel* space while hypruse coordinates are global
+grim captures in *pixel* space while hyprcu coordinates are global
 *logical* pixels; on monitors with fractional scaling the two differ.
 Every capture therefore returns metadata with its origin and scale so an
 image pixel maps back to a clickable point:
@@ -17,7 +17,7 @@ import subprocess
 import time
 from typing import Any
 
-from hypruse import hyprctl
+from hyprcu import hyprctl
 
 
 class ScreenshotError(RuntimeError):
@@ -153,7 +153,7 @@ _SOF_MARKERS = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD
 def image_size(data: bytes) -> tuple[int, int]:
     """(width, height) of PNG or JPEG bytes, without a decode library.
 
-    The model reasons about the image it is actually shown, so hypruse
+    The model reasons about the image it is actually shown, so hyprcu
     reports the true output dimensions rather than assuming the geometry
     it asked grim for.
     """
@@ -218,8 +218,8 @@ def _find_window(window: str, clients: list[dict[str, Any]], active: str | None)
         if c.get("address") == target:
             return c
     if window != "active":
-        # hyprdesk: substring / natural-language target (see pick.py)
-        from hypruse import pick
+        # hyprcu: substring / natural-language target (see pick.py)
+        from hyprcu import pick
         try:
             client, _note = pick.resolve(target, clients)
             return client

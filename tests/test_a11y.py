@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from hypruse import a11y
+from hyprcu import a11y
 
 # --- busctl JSON parsing (the shapes are easy to get subtly wrong) ---
 

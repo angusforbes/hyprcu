@@ -270,7 +270,7 @@ wheels = [
 ]
 
 [[package]]
-name = "hyprdesk"
+name = "hyprcu"
 version = "0.11.0"
 source = { editable = "." }
 dependencies = [

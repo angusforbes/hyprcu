@@ -2,7 +2,7 @@
 the app), so the tool must wait for the compositor's word before the
 `then` observation, or that observation still lists the closed window."""
 
-from hypruse import server as srv
+from hyprcu import server as srv
 
 
 class FakeStream:

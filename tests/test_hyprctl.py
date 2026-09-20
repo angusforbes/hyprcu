@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from hypruse import hyprctl
+from hyprcu import hyprctl
 
 FIX = json.loads((Path(__file__).parent / "fixtures" / "desktop.json").read_text())
 
@@ -217,7 +217,7 @@ def test_snapshot_surfaces_layers_only_when_present():
 
 # --- config manager: hyprlang vs the Lua manager Hyprland 0.56 added --------
 #
-# Regression source: issue #1, hypruse 0.9.4 on Hyprland 0.56.2 with a
+# Regression source: issue #1, hyprcu 0.9.4 on Hyprland 0.56.2 with a
 # hyprland.lua, where every `hyprctl dispatch <name> <args>` came back as a
 # Lua syntax error. These pin the WIRE FORM, not the Python call, because
 # the two ways to get this wrong (a move that is not silent, a string that
@@ -271,7 +271,7 @@ def test_dispatch_on_hyprlang_sends_the_legacy_strings(monkeypatch):
     assert seen == [("dispatch", "movecursor", "100", "200"), ("dispatch", "togglefloating")]
 
 
-# every dispatcher hypruse emits, and the exact Lua it must become
+# every dispatcher hyprcu emits, and the exact Lua it must become
 LUA_FORMS = [
     (("exec", "[workspace 2 silent] foot"),
      'hl.dsp.exec_cmd("[workspace 2 silent] foot")'),
@@ -291,8 +291,8 @@ LUA_FORMS = [
      'hl.dsp.window.float({ action = "toggle", window = "address:0xabc" })'),
     (("togglefloating",),
      'hl.dsp.window.float({ action = "toggle" })'),
-    (("tagwindow", "+hypruse-owned", "address:0xabc"),
-     'hl.dsp.window.tag({ tag = "+hypruse-owned", window = "address:0xabc" })'),
+    (("tagwindow", "+hyprcu-owned", "address:0xabc"),
+     'hl.dsp.window.tag({ tag = "+hyprcu-owned", window = "address:0xabc" })'),
 ]
 
 
@@ -417,16 +417,16 @@ def test_border_rule_uses_the_managers_own_config_call(monkeypatch):
     monkeypatch.setattr(hyprctl, "_run", lambda *a: seen.append(a) or "ok")
 
     monkeypatch.setattr(hyprctl, "_provider", hyprctl.HYPRLANG)
-    hyprctl.border_rule("hypruse-owned", "rgb(ff5555)")
-    assert seen == [("keyword", "windowrule", "border_color rgb(ff5555), tag hypruse-owned")]
+    hyprctl.border_rule("hyprcu-owned", "rgb(ff5555)")
+    assert seen == [("keyword", "windowrule", "border_color rgb(ff5555), tag hyprcu-owned")]
 
     seen.clear()
     monkeypatch.setattr(hyprctl, "_provider", hyprctl.LUA)
-    hyprctl.border_rule("hypruse-owned", "rgb(ff5555)")
+    hyprctl.border_rule("hyprcu-owned", "rgb(ff5555)")
     assert seen == [
         (
             "eval",
-            'hl.window_rule({ name = "hypruse-owned", match = { tag = "hypruse-owned" }, '
+            'hl.window_rule({ name = "hyprcu-owned", match = { tag = "hyprcu-owned" }, '
             'border_color = "rgb(ff5555)" })',
         )
     ]
@@ -437,16 +437,16 @@ def test_border_rule_falls_back_to_the_pre_0_42_matcher(monkeypatch):
 
     def run(*args):
         tried.append(args[-1])
-        if "tag hypruse-owned" in args[-1]:  # modern form, older Hyprland
+        if "tag hyprcu-owned" in args[-1]:  # modern form, older Hyprland
             raise hyprctl.HyprctlError("invalid")
         return "ok"
 
     monkeypatch.setattr(hyprctl, "_provider", hyprctl.HYPRLANG)
     monkeypatch.setattr(hyprctl, "_run", run)
-    hyprctl.border_rule("hypruse-owned", "rgb(ff5555)")
+    hyprctl.border_rule("hyprcu-owned", "rgb(ff5555)")
     assert tried == [
-        "border_color rgb(ff5555), tag hypruse-owned",
-        "border_color rgb(ff5555), tag:hypruse-owned",
+        "border_color rgb(ff5555), tag hyprcu-owned",
+        "border_color rgb(ff5555), tag:hyprcu-owned",
     ]
 
 
@@ -454,7 +454,7 @@ def test_border_rule_raises_when_no_spelling_lands(monkeypatch):
     monkeypatch.setattr(hyprctl, "_provider", hyprctl.HYPRLANG)
     monkeypatch.setattr(hyprctl, "_run", lambda *a: "Invalid rule")
     with pytest.raises(hyprctl.HyprctlError, match="no windowrule spelling"):
-        hyprctl.border_rule("hypruse-owned", "rgb(ff5555)")
+        hyprctl.border_rule("hyprcu-owned", "rgb(ff5555)")
 
 
 def test_dispatch_does_not_retry_on_a_probe_it_could_not_run(monkeypatch):

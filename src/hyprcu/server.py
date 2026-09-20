@@ -1,4 +1,4 @@
-"""hypruse MCP server, computer use for Hyprland.
+"""hyprcu MCP server, computer use for Hyprland.
 
 Design: semantic-first. An agent should read `desktop` and act through
 `hypr`/`launch` (IPC, milliseconds, deterministic) and reach for
@@ -21,13 +21,13 @@ import time
 from pathlib import Path
 from typing import Any
 
-from hypruse import __version__, a11y, events, hyprctl, journal, pick, safety, session, trust
-from hypruse import clipboard as clip
-from hypruse import input as hinput
-from hypruse import screenshot as shot
+from hyprcu import __version__, a11y, events, hyprctl, journal, pick, safety, session, trust
+from hyprcu import clipboard as clip
+from hyprcu import input as hinput
+from hyprcu import screenshot as shot
 
 INSTRUCTIONS = """\
-hypruse controls a live Hyprland desktop. Workflow: call `desktop` first
+hyprcu controls a live Hyprland desktop. Workflow: call `desktop` first
 and prefer `hypr`/`launch` (IPC, instant and exact) for anything window-
 or workspace-shaped; use `screenshot` + `pointer`/`keyboard` only to see
 and operate inside application windows. Launchers, bars, notification
@@ -80,11 +80,11 @@ typing, pass `keyboard(window=<address>)` to focus the intended app first,
 so keystrokes never land in the wrong window."""
 
 READONLY_INSTRUCTIONS = """\
-hypruse is attached to a live Hyprland desktop in READ-ONLY MODE: the
+hyprcu is attached to a live Hyprland desktop in READ-ONLY MODE: the
 user enabled observation only, so the tools listed here are the whole
-surface. hypruse cannot move the cursor, type, press keys, run
+surface. hyprcu cannot move the cursor, type, press keys, run
 programs, or rearrange anything in this mode; the human at the desk
-drives, hypruse watches and reports.
+drives, hyprcu watches and reports.
 
 Workflow: call `desktop` first for the semantic state: monitors,
 workspaces, windows (address, class, title, `at` + `size` in global
@@ -114,15 +114,15 @@ file."""
 
 DRYRUN_NOTE = """\
 
-DRY RUN IS ON for this session (HYPRUSE_DRYRUN). Every acting tool still
+DRY RUN IS ON for this session (HYPRCU_DRYRUN). Every acting tool still
 validates its arguments and runs every trust guard, then reports what it
 WOULD have done and delivers nothing: no click, no keystroke, no window
 op reaches the desktop. Results say so, and the screen will not change,
 so do NOT retry an action because "it did not work". Plan the work and
 report the plan; the human replays it when they are satisfied with it."""
 
-READONLY = os.environ.get("HYPRUSE_READONLY", "").lower() in ("1", "true", "yes", "on")
-CLIPBOARD = os.environ.get("HYPRUSE_CLIPBOARD", "").lower() in ("1", "true", "yes", "on")
+READONLY = os.environ.get("HYPRCU_READONLY", "").lower() in ("1", "true", "yes", "on")
+CLIPBOARD = os.environ.get("HYPRCU_CLIPBOARD", "").lower() in ("1", "true", "yes", "on")
 
 _instructions = READONLY_INSTRUCTIONS if READONLY else INSTRUCTIONS
 if journal.dry_run() and not READONLY:  # read-only has nothing to simulate
@@ -174,7 +174,7 @@ def _image(*, data: str, mimeType: str) -> Any:
 
 def _runtime_dir() -> Path:
     base = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
-    d = Path(base) / "hypruse"
+    d = Path(base) / "hyprcu"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -197,7 +197,7 @@ def desktop() -> dict[str, Any]:
     can see: it may be transparent or dormant, so screenshot when
     visibility matters. Call first; act on the addresses it returns."""
     snap = hyprctl.snapshot()
-    # under HYPRUSE_STRICT a seat that moved without hypruse blocks every
+    # under HYPRCU_STRICT a seat that moved without hyprcu blocks every
     # acting tool until the agent re-observes; this read IS that
     # re-observation, so it re-arms the guard (as its error advises)
     trust.remember_seat()
@@ -205,7 +205,7 @@ def desktop() -> dict[str, Any]:
 
 
 def _image_mode() -> bool:
-    return os.environ.get("HYPRUSE_SCREENSHOT_MODE", "file") == "image"
+    return os.environ.get("HYPRCU_SCREENSHOT_MODE", "file") == "image"
 
 
 def _grab_env(
@@ -221,8 +221,8 @@ def _grab_env(
     host never downscales the image under the model."""
     grab = shot.capture_stable if stable else shot.capture
     if _image_mode():
-        budget = int(os.environ.get("HYPRUSE_MAX_IMAGE_BYTES", "700000"))
-        max_edge = int(os.environ.get("HYPRUSE_MAX_IMAGE_EDGE", "1568"))
+        budget = int(os.environ.get("HYPRCU_MAX_IMAGE_BYTES", "700000"))
+        max_edge = int(os.environ.get("HYPRCU_MAX_IMAGE_EDGE", "1568"))
         return grab(
             window, region, scale=scale, max_bytes=budget, max_edge=max_edge, lossless=lossless
         )
@@ -259,7 +259,7 @@ def _deliver_capture(
 ) -> list[Any]:
     data, meta = _grab_env(window, region, scale=scale, stable=stable, lossless=lossless)
     meta.update(extra or {})
-    trust.notify_capture()  # HYPRUSE_MARK: flash an on-screen notice, rate-limited
+    trust.notify_capture()  # HYPRCU_MARK: flash an on-screen notice, rate-limited
     trust.remember_seat()  # a fresh capture re-arms the strict seat guard
     return _package(data, meta)
 
@@ -325,7 +325,7 @@ def _resolve_window(window: str) -> dict[str, Any]:
         if client is None:
             raise ValueError(f"window {target!r} not found, call desktop() for current addresses")
         return client
-    # hyprdesk: address → class/title substring → kev natural language (see pick.py)
+    # hyprcu: address → class/title substring → kev natural language (see pick.py)
     try:
         client, note = pick.resolve(window, clients)
     except pick.ResolveError as e:
@@ -525,7 +525,7 @@ def marks(window: str = "", name: str = "") -> list[Any] | str:
     if isinstance(elements, str):
         return elements
     data, meta = _grab_env(window=addr, stable=True)
-    trust.notify_capture()  # marks IS a capture: same HYPRUSE_MARK notice
+    trust.notify_capture()  # marks IS a capture: same HYPRCU_MARK notice
     trust.remember_seat()  # and the same strict-guard re-arm as screenshot
     ox, oy = meta["geometry"][0], meta["geometry"][1]
     scale = meta["scale"]
@@ -686,7 +686,7 @@ def pointer(
         hyprctl.dispatch("focuswindow", f"address:{client['address']}")
         time.sleep(0.05)
     trust.guard_seat()
-    # HYPRUSE_DRYRUN runs every check below and then delivers nothing, so
+    # HYPRCU_DRYRUN runs every check below and then delivers nothing, so
     # `plan` describes what each branch was about to do. The guards stay
     # exactly where they are: a dry run whose refusals differ from the
     # real one would be worth nothing.
@@ -927,7 +927,7 @@ _ADDR = re.compile(r"^0x[0-9a-fA-F]+$")
 
 
 def _addr(target: str) -> str:
-    """`address:0x…` for a hypr dispatch. hyprdesk: a non-address target is
+    """`address:0x…` for a hypr dispatch. hyprcu: a non-address target is
     resolved (substring → kev) and the result cached on the call so the
     message can report what was chosen."""
     if not _ADDR.match(target):
@@ -1135,7 +1135,7 @@ def launch(command: str, workspace: str = "", wait_s: float = 8.0) -> dict[str, 
     raise for slow apps). Returns the new window's
     address/class/title/workspace, or a timeout note."""
     safety.touch("launch")
-    wait_s = max(float(wait_s), 0.0)   # hyprdesk: caller's number, uncapped
+    wait_s = max(float(wait_s), 0.0)   # hyprcu: caller's number, uncapped
     rule = f"[workspace {_workspace(workspace)} silent] " if workspace else ""
     if journal.dry_run():
         return f"{_DRY} run {rule + command} and wait up to {wait_s:.0f}s for its window"
@@ -1146,7 +1146,7 @@ def launch(command: str, workspace: str = "", wait_s: float = 8.0) -> dict[str, 
             "single-instance apps may open late and on their own workspace; call "
             "desktop() to find the window, then hypr move_window if needed"
         )
-    # owned-set for `launched` confinement; tag + notify when HYPRUSE_MARK
+    # owned-set for `launched` confinement; tag + notify when HYPRCU_MARK
     trust.note_launched(win["address"], win.get("class", ""))
     trust.remember_seat()  # the new window took focus; re-baseline for the seat guard
     ws = win.get("workspace", {})
@@ -1168,18 +1168,18 @@ def launch(command: str, workspace: str = "", wait_s: float = 8.0) -> dict[str, 
 
 
 _INTERACTIVE_HELP = """\
-hypruse {version}, an MCP server, not an interactive program.
+hyprcu {version}, an MCP server, not an interactive program.
 
 It speaks the MCP protocol over stdin/stdout and is meant to be launched by
 an MCP client, so running it directly in a terminal just waits silently for
 a client that never connects (Ctrl+C to quit).
 
 Register it with Claude Code:
-  claude mcp add -s user hypruse -- uvx hypruse
+  claude mcp add -s user hyprcu -- uvx hyprcu
 
-Or set `uvx hypruse` as a stdio server in your MCP client's config.
-Check the install with:  hypruse --version
-The same tools as shell verbs (for agents that run commands): hypruse --help
+Or set `uvx hyprcu` as a stdio server in your MCP client's config.
+Check the install with:  hyprcu --version
+The same tools as shell verbs (for agents that run commands): hyprcu --help
 """
 
 
@@ -1203,7 +1203,7 @@ def binds() -> list[dict[str, Any]]:
 @journal.journaled(lambda args: "act" if args.get("action") == "write" else "observe")
 def clipboard(action: str, text: str = "") -> str:
     """Clipboard access (opt-in surface: this tool exists only when the
-    user set HYPRUSE_CLIPBOARD=1 in the server env). action='read'
+    user set HYPRCU_CLIPBOARD=1 in the server env). action='read'
     returns the clipboard's text content | 'write' (text) replaces it.
     Text only. The clipboard belongs to the human at the desk: treat its
     contents as sensitive, and read before overwriting."""
@@ -1339,7 +1339,7 @@ def wait_for(event: str, match: str = "", timeout_s: float = 10) -> dict[str, An
     if names is None:
         raise ValueError(f"unknown event {event!r}: {'|'.join(_WAIT_EVENTS)}")
     safety.touch(f"wait_for:{event}")
-    timeout_s = max(float(timeout_s), 0.0)   # hyprdesk: caller's number, uncapped
+    timeout_s = max(float(timeout_s), 0.0)   # hyprcu: caller's number, uncapped
     needle = match.lower()
 
     already = _already_satisfied(event, needle)
@@ -1389,9 +1389,9 @@ def _structural(name: str, payload: dict[str, Any]) -> bool:
         return hyprctl.layer_kind(payload.get("namespace", "")) in hyprctl.FOCUS_STEALING_KINDS
     return name in _WATCHED_EVENTS
 
-_SEQ_MAX_STEPS = 10_000   # hyprdesk: effectively unbounded; the caller owns the plan
+_SEQ_MAX_STEPS = 10_000   # hyprcu: effectively unbounded; the caller owns the plan
 _SEQ_SETTLE = 0.2  # between-step window to let a structural change surface
-_SEQ_BUDGET = 86_400.0  # hyprdesk: no wall-clock ceiling; wait_for steps carry their own timeouts
+_SEQ_BUDGET = 86_400.0  # hyprcu: no wall-clock ceiling; wait_for steps carry their own timeouts
 
 
 def _event_signature(name: str, payload: dict[str, Any]) -> str:
@@ -1489,7 +1489,7 @@ def _seq_wait_for(
         raise ValueError(f"unknown event {event!r}: {'|'.join(_WAIT_EVENTS)}")
     safety.touch(f"wait_for:{event}")
     needle = str(step.get("match", "")).lower()
-    timeout_s = max(float(step.get("timeout_s", 10)), 0.0)   # hyprdesk: caller's number, uncapped
+    timeout_s = max(float(step.get("timeout_s", 10)), 0.0)   # hyprcu: caller's number, uncapped
 
     already = _already_satisfied(event, needle)
     if already is not None:
@@ -1538,7 +1538,7 @@ def sequence(
     if len(steps) > _SEQ_MAX_STEPS:
         raise ValueError(f"sequence too long ({len(steps)} steps, max {_SEQ_MAX_STEPS})")
 
-    # hyprdesk: the event stream serves wait_for steps (so an event that fires
+    # hyprcu: the event stream serves wait_for steps (so an event that fires
     # between steps is not missed) regardless of stop_on_change, which only
     # decides whether an unexpected event ABORTS the run.
     stream = None
@@ -1705,7 +1705,7 @@ def build_app() -> Any:
     """The FastMCP application with the tools registered for this mode."""
     from mcp.server.fastmcp import FastMCP
 
-    app_ = FastMCP("hyprdesk", instructions=_instructions)
+    app_ = FastMCP("hyprcu", instructions=_instructions)
     for observe_tool in _OBSERVE_TOOLS:
         app_.tool()(observe_tool)
     if not READONLY:
@@ -1738,7 +1738,7 @@ def __getattr__(name: str) -> Any:
 
 def main() -> None:
     if "--version" in sys.argv:
-        print(f"hypruse {__version__}")
+        print(f"hyprcu {__version__}")
         return
     # A human ran it by hand (stdin is a terminal, not a client pipe), an
     # MCP stdio client always connects stdin to a pipe, so a TTY here means
@@ -1749,9 +1749,9 @@ def main() -> None:
     session.ensure_session_env()
     safety.init()
     safety.on_shutdown(hinput.release_held)  # kill switch mid-drag: release first
-    journal.start(__version__)  # HYPRUSE_JOURNAL: open the session record
+    journal.start(__version__)  # HYPRCU_JOURNAL: open the session record
     safety.on_shutdown(journal.stop)  # closed on the SIGTERM path too
-    trust.init_marking()  # HYPRUSE_MARK: install the agent-owned border rule
+    trust.init_marking()  # HYPRCU_MARK: install the agent-owned border rule
     app().run()
 
 

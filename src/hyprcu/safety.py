@@ -1,7 +1,7 @@
 """No-op activity beacon.
 
-Upstream writes $XDG_RUNTIME_DIR/hypruse/state.json for a Waybar indicator
-and a panic keybind. hyprdesk has no beacon; `pkill -f hyprdesk` is the
+Upstream writes $XDG_RUNTIME_DIR/hyprcu/state.json for a Waybar indicator
+and a panic keybind. hyprcu has no beacon; `pkill -f hyprcu` is the
 kill switch.
 """
 from __future__ import annotations

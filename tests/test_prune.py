@@ -1,4 +1,4 @@
-from hypruse import server
+from hyprcu import server
 
 
 def test_prune_keeps_newest_20(tmp_path):

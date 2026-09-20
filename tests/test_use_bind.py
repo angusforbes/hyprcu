@@ -1,6 +1,6 @@
 import pytest
 
-from hypruse import hyprctl, server
+from hyprcu import hyprctl, server
 
 BINDS = [
     {"combo": "SUPER+F", "action": "exec", "arg": "kitty --class wb-float-files -e yazi"},
@@ -89,7 +89,7 @@ def test_use_bind_refused_under_confinement(fake_binds, monkeypatch):
     # integration: the guard_use_bind call site is real; a bind runs an
     # arbitrary compositor action that cannot be scoped, so confinement
     # refuses it wholesale, before dispatching anything
-    monkeypatch.setenv("HYPRUSE_CONFINE", "class:kitty")
+    monkeypatch.setenv("HYPRCU_CONFINE", "class:kitty")
     with pytest.raises(server.trust.TrustError, match="cannot be confined"):
         server.use_bind("super+f")
     assert fake_binds == []  # nothing dispatched
@@ -98,7 +98,7 @@ def test_use_bind_refused_under_confinement(fake_binds, monkeypatch):
 def test_hypr_focus_window_refused_out_of_scope(monkeypatch):
     # integration: hypr's guard_window(target) call site is real; focusing
     # an out-of-scope window by address is refused before dispatch
-    monkeypatch.setenv("HYPRUSE_CONFINE", "class:kitty")
+    monkeypatch.setenv("HYPRCU_CONFINE", "class:kitty")
     monkeypatch.setattr(server.safety, "touch", lambda *a: None)
     firefox = {"address": "0xff", "class": "firefox", "workspace": {"id": 1},
                "at": [0, 0], "size": [10, 10], "mapped": True}
@@ -137,6 +137,6 @@ def test_use_bind_refuses_a_lua_bind_and_says_why(fake_lua_binds):
 def test_use_bind_refuses_a_lua_bind_before_the_dry_run_plan(fake_lua_binds, monkeypatch):
     # a rehearsal that reported a plan here would be describing something
     # that can never happen, on any run
-    monkeypatch.setenv("HYPRUSE_DRYRUN", "1")
+    monkeypatch.setenv("HYPRCU_DRYRUN", "1")
     with pytest.raises(ValueError, match="Lua Hyprland config"):
         server.use_bind("super+g")

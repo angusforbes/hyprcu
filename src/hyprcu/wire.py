@@ -1,6 +1,6 @@
 """Minimal Wayland client speaking zwlr_virtual_pointer_unstable_v1.
 
-hypruse injects pointer input by being a regular Wayland client of the
+hyprcu injects pointer input by being a regular Wayland client of the
 user's compositor, the same mechanism wlrctl uses, rather than a uinput
 daemon (ydotool) or the RemoteDesktop portal (which
 xdg-desktop-portal-hyprland does not implement). Nothing here needs root,
@@ -38,11 +38,11 @@ MANAGER_INTERFACE = "zwlr_virtual_pointer_manager_v1"
 SEAT_INTERFACE    = "wl_seat"
 SEAT_EV_NAME      = 1
 
-# Multi-seat: when HYPRUSE_SEAT names a seat, the virtual pointer is created ON
+# Multi-seat: when HYPRCU_SEAT names a seat, the virtual pointer is created ON
 # that seat instead of the compositor default. Requires a compositor that
 # advertises more than one wl_seat; on stock Hyprland this finds nothing and we
 # fall back to the default seat, so the variable is safe to leave set.
-SEAT_ENV          = "HYPRUSE_SEAT"
+SEAT_ENV          = "HYPRCU_SEAT"
 
 BUTTONS = {
     "left": 0x110,
@@ -195,7 +195,7 @@ class VirtualPointer:
         """Object id of the requested wl_seat, or 0 for the compositor default.
 
         zwlr_virtual_pointer_manager_v1.create_virtual_pointer takes the seat the
-        device belongs to. hypruse has always passed 0 (null) because there was
+        device belongs to. hyprcu has always passed 0 (null) because there was
         only ever one seat. Naming one routes this pointer to it, which is how an
         agent gets its own cursor instead of sharing the human's.
         """
@@ -232,7 +232,7 @@ class VirtualPointer:
         # Fall back rather than fail. The variable is easy to leave set in a shell
         # profile and then use on a compositor with only one seat, where hard
         # failure makes every single call error out for no good reason. Seat 0 is
-        # the compositor default, which is what hypruse always used.
+        # the compositor default, which is what hyprcu always used.
         import warnings
 
         warnings.warn(

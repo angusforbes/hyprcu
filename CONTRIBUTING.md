@@ -8,8 +8,8 @@ the wlr protocols; what's missing is an IPC layer equivalent to
 ## Setup
 
 ```sh
-git clone https://github.com/IlyasKhallouki/hypruse
-cd hypruse
+git clone https://github.com/IlyasKhallouki/hyprcu
+cd hyprcu
 uv sync --group dev
 ```
 

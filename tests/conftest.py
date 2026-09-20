@@ -9,7 +9,7 @@ test that wants the interesting state opts in explicitly.
 
 import pytest
 
-from hypruse import hyprctl, journal, server, trust
+from hyprcu import hyprctl, journal, server, trust
 
 
 @pytest.fixture(autouse=True)
@@ -17,13 +17,13 @@ def no_ambient_journal(monkeypatch):
     """No recording, no dry run, unless a test asks for it.
 
     Same rule as below, pointed at the developer's environment rather
-    than the machine's: a suite run with HYPRUSE_JOURNAL exported would
+    than the machine's: a suite run with HYPRCU_JOURNAL exported would
     append hundreds of fabricated entries to a real audit trail, and one
-    with HYPRUSE_DRYRUN set would pass while every acting tool did
+    with HYPRCU_DRYRUN set would pass while every acting tool did
     nothing.
     """
-    monkeypatch.setattr(journal, "_ENABLED", False)  # hyprdesk: never log from tests
-    for var in ("HYPRUSE_JOURNAL", "HYPRUSE_JOURNAL_TEXT", "HYPRUSE_DRYRUN"):
+    monkeypatch.setattr(journal, "_ENABLED", False)  # hyprcu: never log from tests
+    for var in ("HYPRCU_JOURNAL", "HYPRCU_JOURNAL_TEXT", "HYPRCU_DRYRUN"):
         monkeypatch.delenv(var, raising=False)
     journal._broken = False
     # replay marks its records `by: replay` and the CLI verbs stamp theirs
@@ -59,8 +59,8 @@ def unlocked_session(monkeypatch):
     monkeypatch.setattr(trust, "session_locked", lambda: None)
 
 
-# ── hyprdesk: tests for the removed trust/journal/safety layers ─────────────
-# These assert that a guard REFUSES or annotates an action. hyprdesk has no
+# ── hyprcu: tests for the removed trust/journal/safety layers ─────────────
+# These assert that a guard REFUSES or annotates an action. hyprcu has no
 # guards by design (dialog-free, agent owns the seat), so the behaviour they
 # check is intentionally absent. Listed by nodeid so a real regression in the
 # remaining suite is never masked by a blanket skip.
@@ -70,4 +70,4 @@ _REMOVED = set((_pl.Path(__file__).parent / "removed_guard_tests.txt").read_text
 def pytest_collection_modifyitems(config, items):
     for it in items:
         if it.nodeid in _REMOVED:
-            it.add_marker(pytest.mark.xfail(reason="hyprdesk: guard removed, or window= accepts substrings/descriptions (pick.py)", strict=True))
+            it.add_marker(pytest.mark.xfail(reason="hyprcu: guard removed, or window= accepts substrings/descriptions (pick.py)", strict=True))

@@ -7,7 +7,7 @@ import subprocess
 import pytest
 from mcp.types import TextContent
 
-from hypruse import server as srv
+from hyprcu import server as srv
 
 
 def make_client():
@@ -162,7 +162,7 @@ def test_draw_marks_real_imagemagick(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     src = tmp_path / "src.jpg"
     subprocess.run(["magick", "-size", "60x40", "xc:white", str(src)], check=True)
-    from hypruse import screenshot as shot
+    from hyprcu import screenshot as shot
 
     out = srv._draw_marks(src.read_bytes(), "jpeg", [(1, 15, 15), (12, 45, 25)])
     assert out is not None and out != src.read_bytes()
@@ -224,7 +224,7 @@ def test_click_ui_refuses_under_lock_even_with_allow_auth(wired, monkeypatch):
 def test_click_ui_confinement_wiring_refuses_out_of_scope(wired, monkeypatch):
     # integration: guard_client is real here; the 'gedit' target is out of
     # a kitty-only scope, so the click is refused before any side effect
-    monkeypatch.setenv("HYPRUSE_CONFINE", "class:kitty")
+    monkeypatch.setenv("HYPRCU_CONFINE", "class:kitty")
     with pytest.raises(srv.trust.TrustError, match="confinement scope"):
         srv.click_ui(name="Save")
     assert wired["clicks"] == []

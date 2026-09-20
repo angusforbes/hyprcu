@@ -1,6 +1,6 @@
 import pytest
 
-from hypruse import input as hinput
+from hyprcu import input as hinput
 
 
 def test_parse_combo_mods_and_key():
@@ -65,7 +65,7 @@ def test_drag_tracks_and_clears_held_button(monkeypatch):
     monkeypatch.setattr(hinput, "move", lambda x, y: seen.append(hinput._held_button))
     monkeypatch.setattr(hinput.time, "sleep", lambda s: None)
     hinput.drag(0, 0, 10, 10)
-    from hypruse.wire import PRESSED, RELEASED
+    from hyprcu.wire import PRESSED, RELEASED
 
     assert vp.events == [("left", PRESSED), ("left", RELEASED)]
     assert hinput._held_button is None
@@ -79,7 +79,7 @@ def test_concurrent_drags_never_interleave(monkeypatch):
     # atomic on the shared virtual pointer
     import threading
 
-    from hypruse.wire import PRESSED, RELEASED
+    from hyprcu.wire import PRESSED, RELEASED
 
     vp = FakeVP()
     monkeypatch.setattr(hinput, "_vp", vp)
@@ -95,7 +95,7 @@ def test_concurrent_drags_never_interleave(monkeypatch):
 
 def test_release_held_releases_mid_drag_state(monkeypatch):
     # the state a SIGTERM would see if it lands between press and release
-    from hypruse.wire import RELEASED
+    from hyprcu.wire import RELEASED
 
     vp = FakeVP()
     monkeypatch.setattr(hinput, "_vp", vp)

@@ -9,8 +9,8 @@ import json
 
 import pytest
 
-from hypruse import screenshot
-from hypruse import server as srv
+from hyprcu import screenshot
+from hyprcu import server as srv
 
 
 def test_parse_size():
@@ -120,7 +120,7 @@ def test_zoom_region_rejects_bad_size(monkeypatch):
 
 def test_zoom_tool_builds_region_and_echoes_point(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
-    monkeypatch.delenv("HYPRUSE_SCREENSHOT_MODE", raising=False)
+    monkeypatch.delenv("HYPRCU_SCREENSHOT_MODE", raising=False)
     monkeypatch.setattr(
         srv.shot, "zoom_region", lambda x, y, size="", window="": (720, 360, 480, 360)
     )
@@ -146,5 +146,5 @@ def test_zoom_tool_builds_region_and_echoes_point(monkeypatch, tmp_path):
     assert meta["target"] == "zoom"
     assert meta["point"] == [960, 540]
     assert meta["geometry"] == [720, 360, 480, 360]
-    saved = list(tmp_path.glob("hypruse/shot-*.png"))
+    saved = list(tmp_path.glob("hyprcu/shot-*.png"))
     assert len(saved) == 1

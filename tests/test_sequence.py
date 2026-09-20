@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from hypruse import server as srv
+from hyprcu import server as srv
 
 
 class FakeStream:
@@ -28,7 +28,7 @@ class FakeStream:
     def wait_for(self, names, matcher, timeout):
         self.wait_calls.append((set(names), timeout))
         if self.wait_error:
-            from hypruse import events
+            from hyprcu import events
 
             raise events.EventError("socket died mid-wait")
         while self.waits:

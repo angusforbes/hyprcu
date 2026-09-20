@@ -1,6 +1,6 @@
 """pick.resolve: address → substring → kev, with kev stubbed."""
 import pytest
-from hypruse import pick
+from hyprcu import pick
 
 WS = {"name": "1"}
 C = [

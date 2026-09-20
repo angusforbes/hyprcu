@@ -11,7 +11,7 @@ in deterministic places:
 
 ensure_session_env() fills any missing variable from what it finds
 (preferring the most recently started Hyprland instance when several
-linger), so hypruse works no matter how its host process was launched.
+linger), so hyprcu works no matter how its host process was launched.
 """
 
 from __future__ import annotations

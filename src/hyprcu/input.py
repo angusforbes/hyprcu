@@ -21,8 +21,8 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from hypruse import hyprctl, journal
-from hypruse.wire import BUTTONS, PRESSED, RELEASED, VirtualKeyboard, VirtualPointer, WireError
+from hyprcu import hyprctl, journal
+from hyprcu.wire import BUTTONS, PRESSED, RELEASED, VirtualKeyboard, VirtualPointer, WireError
 
 
 class InputError(RuntimeError):
@@ -126,7 +126,7 @@ _seat_lock = threading.RLock()
 
 
 # Every function below delivers input to the seat, so each opens with the
-# dry-run barrier: HYPRUSE_DRYRUN promises the caller that nothing reaches
+# dry-run barrier: HYPRCU_DRYRUN promises the caller that nothing reaches
 # the desktop, and the acting tools keep that promise by returning their
 # plan before they get here. The barrier is what makes the promise hold
 # for a path that was missed instead of silently breaking it.

@@ -5,14 +5,14 @@ Ten-minute orientation for contributors.
 ## Module map
 
 ```
-src/hypruse/
+src/hyprcu/
   cli.py         entry point: server by default, doctor / init / stop /
                  journal / replay / skill subcommands, --help
   verbs.py       the 15 tools as shell verbs: argparse over the same tool
                  functions, the output and exit-code contract, renderers
   cli_state.py   what a one-shot verb remembers between processes (marks
                  numbering, launched-confinement set, strict seat baseline)
-  skill.py       the packaged Agent Skill (skills/hypruse) and its install
+  skill.py       the packaged Agent Skill (skills/hyprcu) and its install
                  into each agent's skills directory
   server.py      the tools (clipboard is opt-in), docstrings = the
                  agent-facing API; the FastMCP app is built on first use
@@ -30,7 +30,7 @@ src/hypruse/
                  and ownership marking (HYPRUSE_CONFINE/AUTH_GUARD/STRICT/MARK)
   journal.py     NDJSON record of every tool call (HYPRUSE_JOURNAL) and the
                  dry-run mode (HYPRUSE_DRYRUN) with its effect-boundary
-                 barrier; what `hypruse journal` and `hypruse replay` read
+                 barrier; what `hyprcu journal` and `hyprcu replay` read
   clipboard.py   wl-clipboard wrapper for the opt-in clipboard tool
   session.py     discovers HYPRLAND_INSTANCE_SIGNATURE / WAYLAND_DISPLAY
                  from runtime-dir sockets when the host stripped the env
@@ -62,7 +62,7 @@ the one case that fails open). It is keyed by compositor instance, since
 window addresses are heap pointers, and every consumer degrades to
 "nothing remembered". A verb that acts takes a cross-process lock and
 always arms the SIGTERM cleanup (`safety.arm()`), even when a live server
-already holds the beacon, because `pkill -f hypruse` matches the verb too
+already holds the beacon, because `pkill -f hyprcu` matches the verb too
 and a verb killed mid-drag must still release its button. And the journal
 stamps a verb's records with `source: "cli"`, never `by`, so they remain
 the agent's own actions to `replay`; the session header is written once
@@ -131,9 +131,9 @@ A click's press and release always happen inside one tool call. A drag
 holds a button across ~200 ms of cursor moves, so the SIGTERM path (what
 the kill switch sends) runs a registered cleanup that releases any held
 button first. Either way the process can die mid-run without stranding a
-button, which is what makes both `hypruse stop` (graceful: signals the
+button, which is what makes both `hyprcu stop` (graceful: signals the
 beacon pid, releases the button, clears the beacon) and the blunter
-`pkill -f hypruse` safe panic actions at any moment.
+`pkill -f hyprcu` safe panic actions at any moment.
 
 ## Sequence of a typical agent step
 
@@ -206,7 +206,7 @@ six delivery functions, `hyprctl.dispatch`, `clipboard.write`), so a path
 nobody thought of fails loudly with nothing delivered instead of quietly
 acting during what the caller was told was a simulation.
 
-`hypruse replay` re-issues a journal's actions through the same tool
+`hyprcu replay` re-issues a journal's actions through the same tool
 functions, so the same guards apply. It prints the plan and stops unless
 `--execute`, and every refusal happens in a pre-flight, before the seat
 is taken, because a refusal that lands halfway leaves the desktop
@@ -215,9 +215,9 @@ limit: they are heap pointers, so a journal outlives them, and an address
 can even be reused by a different window later, which no pre-flight can
 see.
 
-Both the plan and `hypruse journal` render values that the audited party
+Both the plan and `hyprcu journal` render values that the audited party
 wrote, so `cli._safe` strips control characters before re-embedding them
-in output hypruse builds, the same treatment and for the same reason as
+in output hyprcu builds, the same treatment and for the same reason as
 `safety._ACTION_JUNK` on the beacon. Without it a recorded argument could
 carry ESC sequences that erase the lines above it, and the plan a human
 approves would not be the plan that runs.

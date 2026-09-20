@@ -3,13 +3,13 @@
 One vocabulary: the verbs are the MCP tool names, a tool's `action` is a
 positional sub-verb, and the calls go through the same module-level
 functions the MCP server registers, so every trust guard, the journal and
-the activity beacon apply unchanged (`hypruse replay` already drives the
+the activity beacon apply unchanged (`hyprcu replay` already drives the
 tools this way). What this module adds is the shell contract:
 
     stdout   the result, compact plain text by default, `--json` for the
              raw result as one line; a capture prints its file path and its
              coordinate metadata, never bytes
-    stderr   one line on failure: `hypruse: error|refused|usage: <message>`
+    stderr   one line on failure: `hyprcu: error|refused|usage: <message>`
     exit     0 delivered, 1 error, 2 usage, 3 refused by a trust layer or a
              mode gate, 4 ran but produced no result (a timeout, no
              accessibility tree, an ambiguous name, a sequence that stopped)
@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from hypruse import __version__
+from hyprcu import __version__
 
 OBSERVE = ("desktop", "screenshot", "zoom", "ui", "marks", "binds", "wait_for")
 ACT = ("pointer", "keyboard", "click_ui", "hypr", "launch", "use_bind", "sequence")
@@ -57,7 +57,7 @@ class Usage(Exception):
 
 class _Parser(argparse.ArgumentParser):
     def error(self, message: str) -> Any:  # one line on stderr; --help is the next step
-        sys.stderr.write(f"hypruse: usage: {message}\n")
+        sys.stderr.write(f"hyprcu: usage: {message}\n")
         sys.exit(EXIT_USAGE)
 
 
@@ -65,7 +65,7 @@ class _Parser(argparse.ArgumentParser):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = _Parser(prog="hypruse", add_help=False)
+    p = _Parser(prog="hyprcu", add_help=False)
     sub = p.add_subparsers(dest="verb", metavar="VERB")
     sub.required = True
 
@@ -214,7 +214,7 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--no-stop-on-change", dest="no_stop", action="store_true", default=_S)
     acting(v)
 
-    v = verb("clipboard", "read or write the text clipboard (needs HYPRUSE_CLIPBOARD=1)")
+    v = verb("clipboard", "read or write the text clipboard (needs HYPRCU_CLIPBOARD=1)")
     cs = v.add_subparsers(dest="action", metavar="ACTION")
     cs.required = True
     json_flag(cs.add_parser("read", help="print the clipboard text"))
@@ -226,7 +226,7 @@ def build_parser() -> argparse.ArgumentParser:
     # the owner subcommands that take no flags of their own; journal, replay
     # and skill own their argv and are routed before this parser sees them
     sub.add_parser("doctor", help="diagnose the environment")
-    v = sub.add_parser("init", help="register hypruse with detected MCP clients")
+    v = sub.add_parser("init", help="register hyprcu with detected MCP clients")
     v.add_argument("--yes", action="store_true")
     v.add_argument("--skill", action="store_true", help="also install the agent skill")
     sub.add_parser("stop", help="emergency stop of a running server")
@@ -338,12 +338,12 @@ def _flag(name: str) -> bool:
 
 def _fail(kind: str, message: str, code: int) -> int:
     text = _CONTROL.sub(".", str(message)).strip()
-    print(f"hypruse: {kind}: {text}", file=sys.stderr)
+    print(f"hyprcu: {kind}: {text}", file=sys.stderr)
     return code
 
 
 def lock_path() -> Path:
-    base = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "hypruse"
+    base = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "hyprcu"
     base.mkdir(parents=True, exist_ok=True)
     return base / "cli.lock"
 
@@ -354,7 +354,7 @@ def _lock() -> Any:
     pointer, which the server avoids with an in-process lock. The holder's
     pid goes into the file once the lock is held (never before: opening
     for truncation would wipe the pid of the verb we are waiting on), which
-    is how `hypruse stop` reaches a verb when a server owns the beacon."""
+    is how `hyprcu stop` reaches a verb when a server owns the beacon."""
     fh = open(lock_path(), "a+")  # noqa: SIM115 (held until the process exits)
     fcntl.flock(fh, fcntl.LOCK_EX)
     fh.seek(0)
@@ -367,27 +367,27 @@ def _lock() -> Any:
 def run(tool: str, kwargs: dict[str, Any], *, json_out: bool = False,
         out_path: str | None = None, dry_run: bool = False) -> int:
     """Call one tool the way the MCP server would, then speak the shell contract."""
-    if _flag("HYPRUSE_READONLY") and (tool in ACT or tool == "clipboard"):
+    if _flag("HYPRCU_READONLY") and (tool in ACT or tool == "clipboard"):
         return _fail(
             "refused",
-            f"HYPRUSE_READONLY is set: {tool} is not available in read-only mode "
+            f"HYPRCU_READONLY is set: {tool} is not available in read-only mode "
             f"(observation verbs: {', '.join(OBSERVE)})",
             EXIT_REFUSED,
         )
-    if tool == "clipboard" and not _flag("HYPRUSE_CLIPBOARD"):
+    if tool == "clipboard" and not _flag("HYPRCU_CLIPBOARD"):
         return _fail(
             "refused",
-            "the clipboard is opt-in: set HYPRUSE_CLIPBOARD=1 (clipboards hold passwords)",
+            "the clipboard is opt-in: set HYPRCU_CLIPBOARD=1 (clipboards hold passwords)",
             EXIT_REFUSED,
         )
     # a shell caller can only read a file, so the transport is never inline
     # base64, whatever the environment says (that setting is for MCP hosts)
-    os.environ["HYPRUSE_SCREENSHOT_MODE"] = "file"
+    os.environ["HYPRCU_SCREENSHOT_MODE"] = "file"
     if dry_run:
-        os.environ["HYPRUSE_DRYRUN"] = "1"
+        os.environ["HYPRCU_DRYRUN"] = "1"
 
-    from hypruse import cli, cli_state, journal, safety, server, session, trust
-    from hypruse import input as hinput
+    from hyprcu import cli, cli_state, journal, safety, server, session, trust
+    from hyprcu import input as hinput
 
     session.ensure_session_env()
     server.use_plain_blocks()  # a shell prints text and paths; no MCP types, no MCP import
@@ -670,25 +670,25 @@ def main(argv: list[str]) -> int:
     if argv and argv[0] in ("journal", "replay", "skill"):
         # these parse their own flags (argparse's REMAINDER would reject a
         # leading --flag before ever handing it over)
-        from hypruse import cli  # looked up at call time: tests swap these in
+        from hyprcu import cli  # looked up at call time: tests swap these in
 
         if argv[0] == "journal":
             return cli.journal_cmd(argv[1:])
         if argv[0] == "replay":
             return cli.replay(argv[1:])
-        from hypruse import skill
+        from hyprcu import skill
 
         return skill.main(argv[1:])
     parser = build_parser()
     ns = parser.parse_args(argv)
     verb = ALIASES.get(ns.verb, ns.verb)
     if verb == "serve":
-        from hypruse.server import main as server_main
+        from hyprcu.server import main as server_main
 
         server_main()
         return EXIT_OK
     if verb in OWNER:
-        from hypruse import cli
+        from hyprcu import cli
 
         if verb == "doctor":
             return cli.doctor()

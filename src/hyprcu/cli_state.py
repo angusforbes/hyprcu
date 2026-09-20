@@ -4,8 +4,8 @@ The MCP server is one long-lived process, so the marks numbering, the
 `launched` confinement set and the strict-mode seat baseline can live in
 module globals. A CLI verb is a fresh process per call, and without this
 file three things break: `click_ui --mark N` has no numbering to resolve
-against, `HYPRUSE_CONFINE=launched` refuses every action after the launch
-(the owned-set is empty again), and HYPRUSE_STRICT never fires (the seat
+against, `HYPRCU_CONFINE=launched` refuses every action after the launch
+(the owned-set is empty again), and HYPRCU_STRICT never fires (the seat
 guard is a no-op until something remembered a seat), which is the one that
 fails OPEN and is why this module exists.
 
@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from hypruse import hyprctl, trust
+from hyprcu import hyprctl, trust
 
 STATE_VERSION = 1
 
@@ -40,7 +40,7 @@ _restored: dict[str, Any] = {}  # what restore() loaded, to tell our changes fro
 
 def _dir() -> Path:
     base = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
-    d = Path(base) / "hypruse"
+    d = Path(base) / "hyprcu"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -74,13 +74,13 @@ def _plain(value: Any) -> Any:
 
 def restore() -> None:
     """Load the remembered state into the modules that consume it."""
-    from hypruse import server
+    from hyprcu import server
 
     global _flags, _restored
     state = load()
     remembered = state.get("trust")
     remembered = dict(remembered) if isinstance(remembered, dict) else {}
-    if os.environ.get("HYPRUSE_CONFINE", "").strip() == "launched":
+    if os.environ.get("HYPRCU_CONFINE", "").strip() == "launched":
         remembered["owned"] = _prune_owned(remembered.get("owned"))
     trust.restore_state(remembered)
     server.restore_marks(state.get("marks"))
@@ -143,7 +143,7 @@ def save() -> None:
     saved meanwhile. Best effort: this file is a convenience across calls,
     and a verb that acted must not report failure over it; the next call
     simply remembers less."""
-    from hypruse import server
+    from hyprcu import server
 
     mine = {
         "trust": _plain(trust.export_state()),

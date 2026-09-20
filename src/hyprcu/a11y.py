@@ -2,7 +2,7 @@
 
 AT-SPI publishes every accessible app's widget tree on a private D-Bus (the
 "a11y bus"), independent of the display server, so it works on Wayland.
-hypruse reads it by shelling out to busctl, the same pattern as
+hyprcu reads it by shelling out to busctl, the same pattern as
 grim/wtype/hyprctl, and pairs it with hyprctl window geometry to turn
 window-relative element positions into global click points.
 

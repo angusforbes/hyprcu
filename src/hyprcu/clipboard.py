@@ -1,7 +1,7 @@
 """Clipboard via wl-clipboard (wl-copy / wl-paste).
 
 An opt-in surface: the server registers the clipboard tool only when
-HYPRUSE_CLIPBOARD=1 is set, so a default install keeps its documented
+HYPRCU_CLIPBOARD=1 is set, so a default install keeps its documented
 "no clipboard access" posture. Text only; non-text content (images,
 files) is reported as such rather than returned as bytes.
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 
-from hypruse import journal
+from hyprcu import journal
 
 
 class ClipboardError(RuntimeError):

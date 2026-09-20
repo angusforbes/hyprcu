@@ -1,7 +1,7 @@
-"""hyprdesk CLI: the shell verbs (see verbs.py) plus `doctor` and `stop`.
+"""hyprcu CLI: the shell verbs (see verbs.py) plus `doctor` and `stop`.
 
 Upstream's cli.py also carried `init` (MCP-client registration wizard),
-`journal`/`replay` (audit log), and skill installation. hyprdesk keeps the
+`journal`/`replay` (audit log), and skill installation. hyprcu keeps the
 verbs — every MCP tool callable from bash, ~300ms per fresh process — and
 the two commands that stand alone.
 """
@@ -36,10 +36,10 @@ def doctor() -> int:
 
 
 def stop() -> int:
-    """Kill any running hyprdesk server or verb. No beacon in this fork, so
+    """Kill any running hyprcu server or verb. No beacon in this fork, so
     this is a pgrep; bind it to a key as the panic switch."""
     me = os.getpid()
-    out = subprocess.run(["pgrep", "-f", "python.*-m hypruse|hyprdesk"], capture_output=True, text=True).stdout.split()
+    out = subprocess.run(["pgrep", "-f", "python.*-m hyprcu|hyprcu"], capture_output=True, text=True).stdout.split()
     pids = [int(p) for p in out if int(p) != me]
     for p in pids:
         try: os.kill(p, signal.SIGTERM)
@@ -52,17 +52,17 @@ def stop() -> int:
 def lock() -> None: ...          # verbs use a file lock via cli_state; nothing extra
 def _take_beacon() -> bool: return True
 def init(*a, **k) -> int:
-    print("hyprdesk has no init wizard. Add to your MCP config:\n"
-          '  {"command": "uv", "args": ["run", "--directory", "<repo>", "python", "-m", "hypruse"]}')
+    print("hyprcu has no init wizard. Add to your MCP config:\n"
+          '  {"command": "uv", "args": ["run", "--directory", "<repo>", "python", "-m", "hyprcu"]}')
     return 0
 def journal_cmd(*a, **k) -> int:
-    print("hyprdesk has no journal (removed with the trust layer)."); return 1
+    print("hyprcu has no journal (removed with the trust layer)."); return 1
 def replay(*a, **k) -> int:
-    print("hyprdesk has no replay (removed with the trust layer)."); return 1
+    print("hyprcu has no replay (removed with the trust layer)."); return 1
 
 
 _USAGE = """\
-usage: hyprdesk [VERB ...]        hyprdesk VERB --help for a verb's flags
+usage: hyprcu [VERB ...]        hyprcu VERB --help for a verb's flags
 
 no arguments   run the MCP stdio server (this is what MCP clients spawn)
 
@@ -75,7 +75,7 @@ server; for agents that run commands). Observation, works in read-only mode:
   marks [--window ADDR] [--name TEXT] [--out PATH]
   binds
   wait_for EVENT [--match TEXT] [--timeout S]
-Acting (refused with exit 3 under HYPRUSE_READONLY; all take --dry-run, which
+Acting (refused with exit 3 under HYPRCU_READONLY; all take --dry-run, which
 rehearses; all but launch and clipboard take --then none|desktop|ui|screenshot,
 which appends the effect; pointer, keyboard and click_ui take --allow-auth):
   pointer move X Y | click [X Y] [--button B] [--double] | drag X Y TO_X TO_Y [--button B]
@@ -87,15 +87,15 @@ which appends the effect; pointer, keyboard and click_ui take --allow-auth):
   launch [--workspace WS] [--wait S] COMMAND...   (the app's own flags after --)
   use_bind COMBO
   sequence STEPS|@file|- [--no-stop-on-change]
-  clipboard read | write TEXT|-          needs HYPRUSE_CLIPBOARD=1
+  clipboard read | write TEXT|-          needs HYPRCU_CLIPBOARD=1
 Every tool verb takes --json (raw result, one line). click-ui, use-bind and
 wait-for are accepted spellings. Exit: 0 ok, 1 error, 2 usage, 3 refused,
-4 no result. hyprdesk VERB [ACTION] --help shows the flags.
+4 no result. hyprcu VERB [ACTION] --help shows the flags.
 
 For the owner:
   doctor         diagnose dependencies, session, protocols; exit 0 if green
   stop           emergency stop: signal a running server to shut down safely
-                 (bind it: bind = SUPER SHIFT, BackSpace, exec, hyprdesk stop)
+                 (bind it: bind = SUPER SHIFT, BackSpace, exec, hyprcu stop)
                  --acts, --refused, -n N
                  prints the plan and stops unless --execute is given
   serve          the MCP stdio server, explicitly
@@ -109,20 +109,20 @@ def main(argv: list[str] | None = None) -> int:
     stdin and a server started there waits forever for a client."""
     argv = sys.argv[1:] if argv is None else list(argv)
     if not argv:
-        from hypruse.server import main as server_main
+        from hyprcu.server import main as server_main
         server_main()
         return 0
     if argv[0] in ("-h", "--help"):
         print(_USAGE, end=""); sys.exit(0)
     if argv[0] == "--version":
-        from hypruse import __version__
-        print(f"hyprdesk {__version__} (hypruse fork)"); sys.exit(0)
-    from hypruse import verbs
+        from hyprcu import __version__
+        print(f"hyprcu {__version__} (hypruse fork)"); sys.exit(0)
+    from hyprcu import verbs
     try:
         code = verbs.main(argv)
         if not sys.stdout.closed:
             sys.stdout.flush()
-    except BrokenPipeError:   # `hyprdesk desktop | head` closed early — the reader's choice
+    except BrokenPipeError:   # `hyprcu desktop | head` closed early — the reader's choice
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         code = 0
     sys.exit(code)

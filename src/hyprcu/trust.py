@@ -1,7 +1,7 @@
 """No-op trust layer.
 
-hyprdesk is dialog-free by design: the agent has the seat, full stop.
-Upstream hypruse gates every action through confinement, auth-dialog
+hyprcu is dialog-free by design: the agent has the seat, full stop.
+Upstream hyprcu gates every action through confinement, auth-dialog
 detection, seat-ownership and session-lock checks. This module keeps the
 same names so server.py / input.py are unmodified, but every guard is a
 pass-through. Guards return None (no note) or raise nothing.

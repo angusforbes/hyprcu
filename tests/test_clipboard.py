@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from hypruse import clipboard
+from hyprcu import clipboard
 
 
 class FakeRun:

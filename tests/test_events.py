@@ -1,4 +1,4 @@
-from hypruse import events
+from hyprcu import events
 
 
 def test_parse_openwindow_normalizes_address_and_keeps_comma_titles():

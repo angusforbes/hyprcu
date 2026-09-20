@@ -1,6 +1,6 @@
 import pytest
 
-from hypruse import screenshot
+from hyprcu import screenshot
 
 
 def test_parse_region_both_separators():

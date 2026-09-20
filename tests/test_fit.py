@@ -6,7 +6,7 @@ Regression source: Claude Desktop rejects tool results over 1 MB, a
 
 import pytest
 
-from hypruse import screenshot
+from hyprcu import screenshot
 
 
 class FakeGrim:

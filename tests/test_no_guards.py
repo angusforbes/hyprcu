@@ -1,7 +1,7 @@
-"""hyprdesk contract: acting tools do exactly what they're asked. No abort on
+"""hyprcu contract: acting tools do exactly what they're asked. No abort on
 desktop change unless opted in, no step cap, no time budget, no clamped waits."""
 import inspect
-import hypruse.server as srv
+import hyprcu.server as srv
 
 
 def test_sequence_default_does_not_stop_on_change():

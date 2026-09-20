@@ -1,7 +1,7 @@
 """Wait-for-stable capture: a post-action screenshot must not land
 mid-animation, and content that never settles must still return."""
 
-from hypruse import screenshot
+from hyprcu import screenshot
 
 
 def _feed(monkeypatch, frames):

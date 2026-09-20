@@ -5,15 +5,15 @@ import json
 
 import pytest
 
-from hypruse import cli_state, hyprctl, trust
-from hypruse import server as srv
+from hyprcu import cli_state, hyprctl, trust
+from hyprcu import server as srv
 
 
 @pytest.fixture(autouse=True)
 def runtime(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     monkeypatch.setenv("HYPRLAND_INSTANCE_SIGNATURE", "sig-a")
-    monkeypatch.delenv("HYPRUSE_CONFINE", raising=False)
+    monkeypatch.delenv("HYPRCU_CONFINE", raising=False)
     trust._owned.clear()
     monkeypatch.setattr(trust, "_seat", {"cursor": None, "active": None})
     monkeypatch.setattr(srv, "_last_marks", {})
@@ -80,7 +80,7 @@ def test_unreadable_or_foreign_files_mean_nothing_remembered():
 def test_launched_confinement_prunes_windows_that_are_gone(monkeypatch):
     trust._owned.update({"0xaaa", "0xdead"})
     cli_state.save()
-    monkeypatch.setenv("HYPRUSE_CONFINE", "launched")
+    monkeypatch.setenv("HYPRCU_CONFINE", "launched")
     monkeypatch.setattr(hyprctl, "query", lambda cmd: [{"address": "0xaaa"}])
     trust._owned.clear()
     cli_state.restore()
@@ -91,7 +91,7 @@ def test_launched_confinement_prunes_windows_that_are_gone(monkeypatch):
 def test_pruning_keeps_the_set_when_the_window_list_is_unreadable(monkeypatch):
     trust._owned.update({"0xaaa"})
     cli_state.save()
-    monkeypatch.setenv("HYPRUSE_CONFINE", "launched")
+    monkeypatch.setenv("HYPRCU_CONFINE", "launched")
 
     def down(cmd):
         raise hyprctl.HyprctlError("socket gone")

@@ -1,7 +1,7 @@
 import os
 import time
 
-from hypruse import session
+from hyprcu import session
 
 
 def make_instance(runtime, sig, age=0.0):

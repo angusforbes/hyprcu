@@ -1,7 +1,7 @@
 """Training-data log (replaces upstream's audit journal).
 
 Upstream's journal recorded every call as NDJSON for audit/replay and
-implemented dry-run. hyprdesk keeps the decorator seam and uses it for one
+implemented dry-run. hyprcu keeps the decorator seam and uses it for one
 thing: appending acting calls to a JSONL file that can later be labelled
 and used to fine-tune kev (window/element selection). Observation tools
 (desktop, screenshot, ui…) are not logged — they carry no decision signal.
@@ -10,8 +10,8 @@ Each row: ts, tool, args (as passed), the desktop's window list at the time
 (the candidate set kev chose from), result text, error flag, and — when the
 target was resolved by kev — the query, chosen address and probability.
 
-  HYPRDESK_LOG      path (default ~/.local/share/hyprdesk/actions.jsonl)
-  HYPRDESK_LOG=0    disable
+  HYPRCU_LOG      path (default ~/.local/share/hyprcu/actions.jsonl)
+  HYPRCU_LOG=0    disable
 
 `correct` is left absent: a human (or a later verification step) sets it.
 Rows without it are unlabelled and must not be trained on as-is.
@@ -26,14 +26,14 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-_PATH = os.environ.get("HYPRDESK_LOG", str(Path.home() / ".local/share/hyprdesk/actions.jsonl"))
+_PATH = os.environ.get("HYPRCU_LOG", str(Path.home() / ".local/share/hyprcu/actions.jsonl"))
 _ENABLED = _PATH not in ("0", "", "off", "false")
 _KEV = re.compile(r"\[kev: (\d+)% (?:of \d+ matches, |in )(\d+)ms\]")
 
 
 def _windows() -> list[dict[str, Any]]:
     try:
-        from hypruse import hyprctl
+        from hyprcu import hyprctl
         return [{"address": c.get("address"), "class": c.get("class"), "title": (c.get("title") or "")[:80],
                  "workspace": (c.get("workspace") or {}).get("name")}
                 for c in hyprctl.query("clients") if c.get("mapped", True)]

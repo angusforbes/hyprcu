@@ -10,9 +10,9 @@ All notable changes to this project are documented here. The format follows
 - **Shell verbs**: every tool is now a command, for agents that run shell
   commands instead of MCP (Pi, Codex, Hermes, OpenClaw, or a Claude Code
   session that prefers a skill to a tool list). The verbs are the tool
-  names, a tool's `action` is a positional sub-verb (`hypruse pointer click
-  800 60`, `hypruse keyboard type hello --window 0x..`, `hypruse hypr
-  workspace 3`, `hypruse clipboard read`), and the calls go through the
+  names, a tool's `action` is a positional sub-verb (`hyprcu pointer click
+  800 60`, `hyprcu keyboard type hello --window 0x..`, `hyprcu hypr
+  workspace 3`, `hyprcu clipboard read`), and the calls go through the
   same functions the MCP server registers, so every trust guard, the
   journal and the activity beacon apply unchanged. The contract is built
   for a program reading the output: compact plain text, one line per fact
@@ -23,48 +23,48 @@ All notable changes to this project are documented here. The format follows
   `wait_for` timeout, no accessibility tree, an ambiguous name, a sequence
   that stopped). `--then` and `--dry-run` work as on the tools, `--allow-auth`
   where the tool has it, `-` reads text from stdin, and `launch` takes the
-  app's own flags after `--`. `hypruse --help` lists every verb.
-- **Agent skill** (`skills/hypruse`, shipped inside the package): a
+  app's own flags after `--`. `hyprcu --help` lists every verb.
+- **Agent skill** (`skills/hyprcu`, shipped inside the package): a
   SKILL.md following the Agent Skills specification that teaches an agent
   the desktop-first workflow, the coordinate contract, the exit codes and
   the safety rules, with `references/verbs.md` and `references/recipes.md`
-  one level down. `hypruse skill install` copies it to
-  `~/.agents/skills/hypruse` and links it into the skills directory of each
+  one level down. `hyprcu skill install` copies it to
+  `~/.agents/skills/hyprcu` and links it into the skills directory of each
   agent present on the machine (`--agent NAME` for one, created if absent;
-  `--copy` instead of symlinks); `hypruse skill uninstall` removes exactly
-  what it made and nothing that is not hypruse's. `hypruse init` offers the
+  `--copy` instead of symlinks); `hyprcu skill uninstall` removes exactly
+  what it made and nothing that is not hyprcu's. `hyprcu init` offers the
   install and `doctor` reports it. The repo layout also works with
-  `npx skills add IlyasKhallouki/hypruse`.
+  `npx skills add IlyasKhallouki/hyprcu`.
 - **Cross-process state** for the verbs, in
-  `$XDG_RUNTIME_DIR/hypruse/cli-state.json`, keyed by compositor instance:
+  `$XDG_RUNTIME_DIR/hyprcu/cli-state.json`, keyed by compositor instance:
   the `marks` numbering (so `click_ui --mark N` resolves), the `launched`
   confinement set (which would otherwise be empty again after the launch),
   and the `HYPRUSE_STRICT` seat baseline, without which the seat guard is a
   no-op in every fresh process and strict mode would silently fail open.
   Under `launched` confinement the set is pruned against the live window
   list before it is trusted, since an address can be reused.
-- `hypruse serve` runs the MCP server explicitly (bare `hypruse` still does).
+- `hyprcu serve` runs the MCP server explicitly (bare `hyprcu` still does).
 - Journal records written through the verbs carry `source: "cli"`, and
-  `hypruse journal` shows it; they are still the agent's own actions, so
+  `hyprcu journal` shows it; they are still the agent's own actions, so
   `replay` re-issues them. The session header is written once per run of
   identical flags rather than once per process.
 
 ### Changed
-- `hypruse.server` no longer imports the MCP stack at import time: the
+- `hyprcu.server` no longer imports the MCP stack at import time: the
   tools ask for content blocks through two small factories, and the FastMCP
   app is built on first use (`server.app()`, still reachable as
   `server.mcp`). A shell verb therefore never loads `mcp`, and starts in
   a few hundred milliseconds instead of several seconds.
 - `safety.arm()` installs the SIGTERM and atexit cleanup without raising the
   beacon; `init()` calls it. A verb running beside a live server leaves the
-  server's beacon alone but is still safe under `pkill -f hypruse` mid-drag.
+  server's beacon alone but is still safe under `pkill -f hyprcu` mid-drag.
 - The file-mode capture metadata now carries `path`, so a reader takes the
   location from the record rather than from the sentence around it.
 - The CLI's default usage is a complete verb list, and the interactive
   notice the server prints on a terminal points at it.
 
 ### Fixed
-- `hypruse --help` and `-h` started the MCP server (silently, when stdin
+- `hyprcu --help` and `-h` started the MCP server (silently, when stdin
   was a pipe, which it always is under an agent's shell): the entry point
   routed every leading dash to the server. Help and `--version` now print
   and exit without importing it.
@@ -74,7 +74,7 @@ All notable changes to this project are documented here. The format follows
 ### Added
 - **Action journal** (`HYPRUSE_JOURNAL`): an append-only NDJSON record of
   every tool call, one JSON object per line, in
-  `$XDG_STATE_HOME/hypruse/journal.ndjson` or a path you name. Each entry
+  `$XDG_STATE_HOME/hyprcu/journal.ndjson` or a path you name. Each entry
   carries the tool, the arguments as called, how long it took, and the
   outcome, and a session opens with the trust flags it ran under, so a
   refusal three hours in can be read next to the configuration that
@@ -106,16 +106,16 @@ All notable changes to this project are documented here. The format follows
   what the caller was told was a simulation. The server instructions tell
   the agent dry run is on, so it reports a plan rather than retrying an
   action that "did not work".
-- `hypruse journal` reads the record back: one line per call, a second
+- `hyprcu journal` reads the record back: one line per call, a second
   line for anything a trust layer refused, and a summary of actions,
   observations, refusals, and errors. `--acts`, `--refused`, `-n N`,
   `-v`.
-- `hypruse replay` re-issues a journal's actions through the same tool
+- `hyprcu replay` re-issues a journal's actions through the same tool
   functions, so the same guards apply to the replay. It prints the plan
   and stops there unless `--execute`. Everything it refuses, it refuses
   before taking the seat, because a refusal that lands halfway leaves the
   desktop part-way through someone else's plan: an action recorded by a
-  newer hypruse (skipping it and running the rest would report success
+  newer hyprcu (skipping it and running the rest would report success
   for a different sequence of events than the one recorded), a recorded
   window that no longer exists (`--skip-missing` runs the rest), text
   recorded as a digest, a `click_ui(mark=N)` whose numbering died with
@@ -125,8 +125,8 @@ All notable changes to this project are documented here. The format follows
   by `--max-gap` and scaled by `--speed`. Its own actions are journaled
   and marked, so replaying a file twice runs the recorded plan rather
   than the plan plus the replay of it, and it raises the activity beacon
-  only when no live hypruse already holds it, so a running server keeps
-  its own `hypruse stop` and Waybar indicator.
+  only when no live hyprcu already holds it, so a running server keeps
+  its own `hyprcu stop` and Waybar indicator.
 
 ### Fixed
 - **Hyprland's Lua config manager** (0.56+). Every window operation failed
@@ -140,14 +140,14 @@ All notable changes to this project are documented here. The format follows
   outright. Which manager runs is decided by the config file's extension,
   and `hyprland.lua` is looked for first, so a fresh 0.56 install is a Lua
   desktop while a 0.56 install with the old config is untouched: this is
-  not something a version check can answer. hypruse now probes the manager
+  not something a version check can answer. hyprcu now probes the manager
   once (`hyprctl -j status`, a JSON line, not the two-second `systeminfo`),
   speaks whichever dialect came back, and re-probes if a call fails, since
   `hyprctl reload full-reset` can swap managers under a running server.
   Callers are unchanged: a window op is still described once, in the
   legacy shape, and `hyprctl.py` translates. Thanks to @Sokoshy for the
   report, the `hl.dsp` enumeration, and the verified migration examples
-  ([#1](https://github.com/IlyasKhallouki/hypruse/issues/1)).
+  ([#1](https://github.com/IlyasKhallouki/hyprcu/issues/1)).
 - Ownership marking (`HYPRUSE_MARK`) was silently dead on a Lua config:
   the border rule could not install and no window was ever tagged, so even
   the documented workaround of putting the rule in your own config matched
@@ -170,10 +170,10 @@ All notable changes to this project are documented here. The format follows
   dispatcher argument is evaluated inside the compositor's own interpreter
   with the standard library open, and `workspace` was the one agent-supplied
   dispatcher argument with no structural validation, on deliberately the
-  one `hypr` action that skips the confinement guard. Everything hypruse
+  one `hypr` action that skips the confinement guard. Everything hyprcu
   sends on the Lua path is now built as an escaped literal rather than
   interpolated.
-- `hypruse doctor` reports which config manager the session runs.
+- `hyprcu doctor` reports which config manager the session runs.
 
 ### Changed
 - `hypr` now validates its action, its `workspace` argument, and its
@@ -192,8 +192,8 @@ All notable changes to this project are documented here. The format follows
 ## [0.9.4] - 2026-07-26
 
 ### Added
-- hypruse is listed in the official [MCP registry](https://registry.modelcontextprotocol.io)
-  as `io.github.IlyasKhallouki/hypruse`, so MCP clients that browse the
+- hyprcu is listed in the official [MCP registry](https://registry.modelcontextprotocol.io)
+  as `io.github.IlyasKhallouki/hyprcu`, so MCP clients that browse the
   registry can discover and install it. The entry ships as `server.json`
   and carries the env flags (`HYPRUSE_SCREENSHOT_MODE`, `HYPRUSE_READONLY`,
   `HYPRUSE_CONFINE`, and the rest of the trust layer) so clients can
@@ -338,7 +338,7 @@ release of its own.
   (`busctl`) path the `ui`/`marks`/`click_ui` tools use; the security
   model documents `pointer`'s `allow_auth` and that `use_bind` is refused
   under confinement; ARCHITECTURE gains a trust-layer section and notes
-  `hypruse stop`. Several small factual fixes (the auth-guard override
+  `hyprcu stop`. Several small factual fixes (the auth-guard override
   covers `pointer` too, a stale desktop-snapshot timing figure, the
   `super+enter` keyboard example that belonged to `use_bind`).
 
@@ -351,21 +351,21 @@ release of its own.
   `border_color`, it takes a single 6-char color, and the tag matcher
   dropped its colon (`tag NAME`), so the rule was silently rejected and
   swallowed. Marking now: reliably tags each agent-owned window
-  `hypruse-owned` and flashes an on-screen notice when the agent opens a
+  `hyprcu-owned` and flashes an on-screen notice when the agent opens a
   window (both verified working), and best-effort installs the corrected
   `border_color` windowrule (current and legacy matcher forms). A runtime
   window rule does not render on every Hyprland version/config, so the
   README documents the one-line config rule for a guaranteed outline;
-  hypruse's tagging matches it.
+  hyprcu's tagging matches it.
 
 ## [0.9.0] - 2026-07-19
 
 ### Added
-- Optional confinement and trust layers (`src/hypruse/trust.py`), each an
+- Optional confinement and trust layers (`src/hyprcu/trust.py`), each an
   opt-in env flag that fails toward less action and composes with the
   approval/beacon layers:
   - `HYPRUSE_CONFINE` restricts input to a scope of windows: `launched`
-    (only windows hypruse opened this session, seeded from `launch`),
+    (only windows hyprcu opened this session, seeded from `launch`),
     `class:a,b`, or `workspace:1,2`. Keyboard, `click_ui`, and `hypr`
     window ops are refused outside scope; a `pointer` click is refused
     when any window under the point is out of scope (Hyprland's client
@@ -378,15 +378,15 @@ release of its own.
     `click_ui` overrides it and, changing the argument shape, surfaces in
     the approval prompt.
   - `HYPRUSE_STRICT` refuses to act when the cursor or focused window
-    moved since hypruse's last action (the seat was taken); the agent
+    moved since hyprcu's last action (the seat was taken); the agent
     must re-observe and retry.
   - `HYPRUSE_MARK` borders agent-owned windows (a runtime `windowrulev2`
     on a tag, torn down on exit) and flashes a rate-limited on-screen
     notice on capture.
-- `hypruse stop` subcommand: an emergency stop that signals the running
+- `hyprcu stop` subcommand: an emergency stop that signals the running
   server to shut down gracefully (releasing any held pointer button and
   clearing the beacon), cleaner than `pkill` and safe to bind:
-  `bind = SUPER SHIFT, BackSpace, exec, hypruse stop`.
+  `bind = SUPER SHIFT, BackSpace, exec, hyprcu stop`.
 
 ## [0.8.0] - 2026-07-19
 
@@ -617,9 +617,9 @@ release of its own.
 ## [0.2.0] - 2026-07-16
 
 ### Added
-- `hypruse init`: registers the server in detected MCP clients (per-client
+- `hyprcu init`: registers the server in detected MCP clients (per-client
   confirmation, timestamped config backup, never overwrites an existing
-  entry), then runs doctor. `hypruse doctor`: one-command diagnostics for
+  entry), then runs doctor. `hyprcu doctor`: one-command diagnostics for
   dependencies, session discovery, the event socket, a virtual-pointer
   handshake, and a live capture.
 - `binds` tool: the user's keybinds decoded to combos with descriptions,
@@ -631,7 +631,7 @@ release of its own.
 ### Changed
 - `launch` now subscribes to the Hyprland event socket before dispatching
   and blocks on the actual openwindow event (polling remains as fallback).
-- Console entry point moved to `hypruse.cli:main`; bare `hypruse` still
+- Console entry point moved to `hyprcu.cli:main`; bare `hyprcu` still
   runs the stdio server, so existing client registrations keep working.
 
 ## [0.1.2] - 2026-07-16
@@ -649,7 +649,7 @@ release of its own.
   beacon is still cleaned up via `atexit`); only SIGTERM is handled.
 
 ### Added
-- Running `hypruse` directly in a terminal now prints what it is and how to
+- Running `hyprcu` directly in a terminal now prints what it is and how to
   register it, then exits, instead of silently blocking as a stdio server
   waiting for a client that will never connect.
 

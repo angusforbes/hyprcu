@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from hypruse import hyprctl, screenshot, wire
+from hyprcu import hyprctl, screenshot, wire
 
 pytestmark = pytest.mark.e2e
 
@@ -108,7 +108,7 @@ def test_session_lock_detection_matches_reality():
     import shutil as _shutil
     import subprocess as _sub
 
-    from hypruse import trust
+    from hyprcu import trust
 
     # unlocked session: the /proc scan runs against real /proc and finds
     # no locker (this test would never run under an actual lock)
@@ -131,7 +131,7 @@ def test_live_layers_shape_matches_the_parser():
     """parse_layers must handle what the live compositor actually emits:
     a per-monitor dict of level -> surface list, with each surface
     carrying namespace and x/y/w/h. Guards against fixture drift."""
-    from hypruse import hyprctl
+    from hyprcu import hyprctl
 
     raw = hyprctl.query("layers")
     assert isinstance(raw, dict)
