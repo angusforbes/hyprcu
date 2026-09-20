@@ -486,3 +486,31 @@ or `"<Channel> ... - Slack"`. **kev:** "slack" → 100% when open, 37% when not.
 **a11y:** 0 AT-SPI elements without `--force-renderer-accessibility`.
 Vision + fractions only.
 
+
+## 25. Long-running servers must NOT be started from the agent's bash tool
+
+Symptom: kev server "shuts down cleanly" 2 requests after start, port left
+half-held, `pick.py` reports "kev unreachable". Repeated 4×.
+
+Causes, both self-inflicted:
+1. `nohup cmd > log 2>&1 &` inside pi's bash: the child is in the tool's
+   process group and is HUP'd/killed when the tool call returns. `setsid -f`
+   helped but not reliably.
+2. `pkill -f "kev.serve"` in a diagnostic matches the `bash -c "…kev.serve…"`
+   wrapper of the *current* command AND any fresh server. I killed the thing
+   I was checking on, then concluded it was flaky.
+
+Fix: run servers in a **persistent Herdr subagent pane** (`subagent` tool,
+`persistent: true`), or a systemd user unit. Never from a one-shot bash call.
+`pgrep -f` with a pattern that can match your own shell: use `[k]ev.serve`
+or `pgrep -f "python3 -u -m kev.serve"` (full argv, no wrapper match).
+
+## 26. kev NF4 patch: move the pointer head to GPU too
+
+`KEV_QUANT=nf4` left `m.head` (PointerHead) on CPU/fp32 because the
+non-quantized path moved it via `m.lm.to(dev)` and the quantized branch
+skipped that. Every call shipped hidden states GPU→CPU: **4.5 s per call,
+linear in option count (~330 ms/option)**, GPU at 100% the whole time.
+Fix in `~/Work/kev/kev/evaluate.py`: `m.head.to(dev).to(dtype)` in the
+quantized branch, and cast LoRA params to `dtype`. Expected: ~200 ms.
+Diagnostic that found it: same query at 2/6/13 options → 1.0/2.2/4.4 s.
