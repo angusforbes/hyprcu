@@ -94,6 +94,11 @@ def _dpms_off_monitors() -> list[str]:
 
 
 def _grim(args: list[str]) -> bytes:
+    if hyprctl.session_locked():
+        raise ScreenshotError(
+            "session is LOCKED (lock screen is showing); a capture would only show the lock UI, "
+            "and any keyboard input goes to the password field. Ask the user to unlock."
+        )
     dark = _dpms_off_monitors()
     if dark:
         raise ScreenshotError(

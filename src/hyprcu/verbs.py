@@ -632,12 +632,16 @@ def _render_ui(items: list[dict[str, Any]], key: str = "") -> str:
 
 def _render_desktop(snap: dict[str, Any]) -> str:
     lines = []
+    if snap.get("SESSION_LOCKED"):
+        lines.append("SESSION LOCKED — " + snap.get("note", "input goes to the lock screen"))
     for m in snap.get("monitors", []):
         g = m.get("geometry") or [None] * 4
         line = (f"monitor {_safe(m.get('name'))} at {g[0]},{g[1]} {g[2]}x{g[3]} "
                 f"scale {m.get('scale')} ws {m.get('active_workspace')}")
         if m.get("focused"):
             line += " focused"
+        if m.get("display") == "off":
+            line += " DISPLAY-OFF"
         if m.get("transform"):
             line += f" transform {m['transform']}"
         lines.append(line)

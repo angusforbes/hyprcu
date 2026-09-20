@@ -243,6 +243,16 @@ def _lua_dpms(mode: str = "on") -> str:
     return f"hl.dsp.dpms({{ mode = {lua_str(mode)} }})"
 
 
+def session_locked() -> bool:
+    """True while an ext-session-lock client (hyprlock, omarchy-shell lock, …)
+    holds the session. Compositor-authoritative: reads solitaryBlockedBy from
+    hyprctl monitors, so it works for any locker, not just known binaries."""
+    try:
+        return any("LOCK" in (m.get("solitaryBlockedBy") or []) for m in query("monitors"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 _LUA_DISPATCH = {
     "dpms": _lua_dpms,
     "exec": _lua_exec,
@@ -438,7 +448,9 @@ def _monitor(m: dict[str, Any]) -> dict[str, Any]:
         "active_workspace": m.get("activeWorkspace", {}).get("id"),
     }
     if m.get("dpmsStatus") is False:
-        out["display"] = "off"   # screenshots will refuse; hypr(action='dpms_on') wakes it
+        out["display"] = "off"   # screenshots error; hypr(action='dpms_on') wakes it
+    if "LOCK" in (m.get("solitaryBlockedBy") or []):
+        out["locked"] = True     # ext-session-lock active: all input goes to the lock UI
     if int(m.get("transform", 0)):
         out["transform"] = int(m["transform"])
     return out
@@ -550,6 +562,11 @@ def snapshot_from(
         "active_window": (active_window or {}).get("address"),
         "cursor": list(cursor) if cursor else None,
     }
+    if any("LOCK" in (m.get("solitaryBlockedBy") or []) for m in monitors):
+        # first key in the dict so it is the first thing an agent reads; every
+        # keystroke and click below this line lands on the lock screen
+        snap = {"SESSION_LOCKED": True, "note": "lock screen is up: input goes to the password prompt, "
+               "screenshots show only the lock UI. Ask the user to unlock before acting.", **snap}
     surfaces = parse_layers(layers or {})
     if surfaces:  # token-lean: absent when there is nothing but wallpaper
         snap["layers"] = surfaces
