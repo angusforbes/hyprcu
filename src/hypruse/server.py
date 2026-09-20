@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from hypruse import __version__, a11y, events, hyprctl, journal, safety, session, trust
+from hypruse import __version__, a11y, events, hyprctl, journal, pick, safety, session, trust
 from hypruse import clipboard as clip
 from hypruse import input as hinput
 from hypruse import screenshot as shot
@@ -314,16 +314,24 @@ def zoom(
 
 
 def _resolve_window(window: str) -> dict[str, Any]:
-    """The hyprctl client for a window address ('' or 'active' = focused)."""
+    """The hyprctl client for `window`: an address, a class/title substring, or a
+    natural-language description resolved by kev (pick.py). '' or 'active' = focused."""
     clients = hyprctl.query("clients")
-    target = window
     if not window or window == "active":
         target = (hyprctl.query("activewindow") or {}).get("address")
-    if not target:
-        raise ValueError("no active window; pass a window address from desktop()")
-    client = next((c for c in clients if c.get("address") == target), None)
-    if client is None:
-        raise ValueError(f"window {target!r} not found, call desktop() for current addresses")
+        if not target:
+            raise ValueError("no active window; pass a window address from desktop()")
+        client = next((c for c in clients if c.get("address") == target), None)
+        if client is None:
+            raise ValueError(f"window {target!r} not found, call desktop() for current addresses")
+        return client
+    # hyprdesk: address → class/title substring → kev natural language (see pick.py)
+    try:
+        client, note = pick.resolve(window, clients)
+    except pick.ResolveError as e:
+        raise ValueError(str(e)) from None
+    if note:
+        client = dict(client, _pick_note=note)
     return client
 
 
@@ -644,15 +652,39 @@ def pointer(
     double: bool = False,
     then: str = "none",
     allow_auth: bool = False,
+    window: str = "",
+    x_pct: float | None = None,
+    y_pct: float | None = None,
+    to_x_pct: float | None = None,
+    to_y_pct: float | None = None,
 ) -> list[Any] | str:
-    """Mouse in global coordinates. action='move' (x,y) | 'click' (optional
-    x,y first; button left/right/middle; double=true) | 'drag' (x,y →
-    to_x,to_y holding button) | 'scroll' (scroll_dy notches, positive =
-    content down; optional x,y first). `then` appends the result to this
-    call so you skip a round-trip: 'desktop' a fresh snapshot, 'screenshot'
-    a stable capture, 'ui' the focused window's elements with current
-    values, 'none' (default) nothing."""
+    """Mouse. action='move' (x,y) | 'click' (optional x,y first; button
+    left/right/middle; double=true) | 'drag' (x,y → to_x,to_y holding button)
+    | 'scroll' (scroll_dy notches, positive = content down; optional x,y first).
+
+    Coordinates are GLOBAL logical pixels by default. Pass `window` (address,
+    class/title substring, or a description like "the file browser") plus
+    x_pct/y_pct in 0.0–1.0 to click RELATIVE to that window instead: (0.5,0.5)
+    is its centre, (0.1,0.05) near its top-left. The window is focused first.
+    This is the robust form — it survives the window moving or resizing.
+
+    `then` appends the result to this call so you skip a round-trip: 'desktop'
+    a fresh snapshot, 'screenshot' a stable capture, 'ui' the focused window's
+    elements with current values, 'none' (default) nothing."""
     safety.touch(f"pointer:{action}")
+    note = ""
+    if window or x_pct is not None or y_pct is not None:
+        if not window:
+            raise ValueError("x_pct/y_pct need `window` (address, substring, or description)")
+        client = _resolve_window(window)
+        note = client.get("_pick_note", "")
+        wx, wy = client["at"]; ww, wh = client["size"]
+        if x_pct is not None: x = wx + x_pct * ww
+        if y_pct is not None: y = wy + y_pct * wh
+        if to_x_pct is not None: to_x = wx + to_x_pct * ww
+        if to_y_pct is not None: to_y = wy + to_y_pct * wh
+        hyprctl.dispatch("focuswindow", f"address:{client['address']}")
+        time.sleep(0.05)
     trust.guard_seat()
     # HYPRUSE_DRYRUN runs every check below and then delivers nothing, so
     # `plan` describes what each branch was about to do. The guards stay
@@ -660,7 +692,7 @@ def pointer(
     # real one would be worth nothing.
     dry = journal.dry_run()
     plan = ""
-    note = ""
+    # (note may already carry the kev pick from the window= branch above)
     if action != "move":
         # a locked session routes every event to its credential prompt, so
         # no window can receive this (a bare click can legitimately AIM at
@@ -895,11 +927,20 @@ _ADDR = re.compile(r"^0x[0-9a-fA-F]+$")
 
 
 def _addr(target: str) -> str:
+    """`address:0x…` for a hypr dispatch. hyprdesk: a non-address target is
+    resolved (substring → kev) and the result cached on the call so the
+    message can report what was chosen."""
     if not _ADDR.match(target):
-        raise ValueError(
-            f"{target!r} is not a window address, use the `address` field from desktop()"
-        )
+        client = _resolve_window(target)
+        _last_pick["addr"] = client["address"]
+        _last_pick["note"] = client.get("_pick_note", f" [→ {pick.describe(client)[:40]}]")
+        return f"address:{client['address']}"
+    _last_pick["addr"] = target
+    _last_pick["note"] = ""
     return f"address:{target}"
+
+
+_last_pick: dict[str, str] = {"addr": "", "note": ""}
 
 
 # Hyprland accepts a lot of shapes here (3, name:notes, special:magic, +1,
@@ -1023,11 +1064,13 @@ def hypr(action: str, target: str = "", workspace: str = "", then: str = "none")
         hyprctl.dispatch("workspace", workspace)
         msg = f"on workspace {workspace}"
     elif action == "focus_window":
-        hyprctl.dispatch("focuswindow", _addr(target))
-        msg = f"focused {target}"
+        a = _addr(target)
+        msg = f"focused {_last_pick['addr']}{_last_pick['note']}"
+        hyprctl.dispatch("focuswindow", a)
     elif action == "move_window":
-        hyprctl.dispatch("movetoworkspacesilent", f"{workspace},{_addr(target)}")
-        msg = f"moved {target} to workspace {workspace}"
+        a = _addr(target)
+        hyprctl.dispatch("movetoworkspacesilent", f"{workspace},{a}")
+        msg = f"moved {_last_pick['addr']} to workspace {workspace}{_last_pick['note']}"
     elif action == "close_window":
         msg = _close_and_confirm(target)
     elif action == "fullscreen":

@@ -22,6 +22,7 @@ def no_ambient_journal(monkeypatch):
     with HYPRUSE_DRYRUN set would pass while every acting tool did
     nothing.
     """
+    monkeypatch.setattr(journal, "_ENABLED", False)  # hyprdesk: never log from tests
     for var in ("HYPRUSE_JOURNAL", "HYPRUSE_JOURNAL_TEXT", "HYPRUSE_DRYRUN"):
         monkeypatch.delenv(var, raising=False)
     journal._broken = False
@@ -69,4 +70,4 @@ _REMOVED = set((_pl.Path(__file__).parent / "removed_guard_tests.txt").read_text
 def pytest_collection_modifyitems(config, items):
     for it in items:
         if it.nodeid in _REMOVED:
-            it.add_marker(pytest.mark.xfail(reason="trust/journal/safety layer removed in hyprdesk", strict=True))
+            it.add_marker(pytest.mark.xfail(reason="hyprdesk: guard removed, or window= accepts substrings/descriptions (pick.py)", strict=True))

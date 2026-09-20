@@ -42,3 +42,4 @@ tests/test_verbs.py::test_journal_entries_from_the_cli_carry_a_source_and_one_he
 tests/test_verbs.py::test_seq_numbers_are_unique_across_writers
 tests/test_verbs.py::test_strict_seat_baseline_survives_between_calls
 tests/test_verbs.py::test_version_prints_without_the_server
+tests/test_keyboard_target.py::test_bad_window_address_rejected

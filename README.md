@@ -46,7 +46,7 @@ Exit codes: 0 delivered · 1 error · 2 usage · 4 nothing to act on.
 
 ## Tests
 
-`uv run pytest tests/ --ignore=tests/test_e2e.py` → 356 passed, 44 xfailed.
+`uv run pytest tests/ --ignore=tests/test_e2e.py` → 362 passed, 45 xfailed.
 The xfails are enumerated in `tests/removed_guard_tests.txt`; each asserts
 that a guard refuses something. They are `strict`, so a guard silently
 coming back would fail the suite.
@@ -70,6 +70,34 @@ keyboard, click_ui, hypr, launch, use_bind, sequence.
 The a11y tools are only as good as the apps' trees. On this desktop, today,
 they're mostly empty. `sequence`, `launch`, `wait_for` and the unified
 pointer are the real gains.
+
+## What hyprdesk adds (the parts that are ours)
+
+**`pick.py` — natural-language window targeting.** Every `window` argument
+(hypr, pointer, keyboard, screenshot, ui, click_ui…) accepts an address, a
+class/title substring, or a description. Resolution: exact address → unique
+substring (free) → kev choice (~200ms, local). Ambiguous substrings are also
+tie-broken by kev. Below `KEV_GATE` (0.5) it fails with "the app may not be
+open — check desktop() or launch it", which has been right every time so far.
+Results carry `[kev: 99% in 229ms]` so you can see when it was used.
+
+    hyprdesk hypr focus_window "the file browser"
+    hyprdesk keyboard type "hello" --window "the shell on workspace 2"
+
+**Window-relative clicks.** `pointer` takes `window` + `x_pct`/`y_pct`
+(0.0–1.0); the window is focused first and the fraction is mapped to its
+current geometry, so the click survives moves and resizes. CLI:
+`hyprdesk pointer click --in "Strata" --at 0.053 0.23`.
+
+**`journal.py` — training log.** Acting tools append one JSONL row to
+`~/.local/share/hyprdesk/actions.jsonl` (`HYPRDESK_LOG=0` disables): args,
+the window list at the time, result, and — when kev chose — query and
+probability. Rows are unlabelled; a `correct` field is meant to be added
+later before anything is trained on them.
+
+Requires a Jev-compatible server at `KEV_URL` (default kev-4b on :8009, see
+pi-omarchy-computer-use/kev-serve.sh). Without one, substring and address
+targeting still work; descriptions fail with an explicit message.
 
 ## Trust/approval language audit (2026-09-20)
 

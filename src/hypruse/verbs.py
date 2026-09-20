@@ -136,10 +136,14 @@ def build_parser() -> argparse.ArgumentParser:
     a = ps.add_parser("move", help="move the cursor to X Y")
     a.add_argument("x", type=float)
     a.add_argument("y", type=float)
-    a = ps.add_parser("click", help="click at X Y, or at the cursor")
+    a = ps.add_parser("click", help="click at X Y, at the cursor, or --in WINDOW --at XPCT YPCT")
     a.add_argument("coords", nargs="*", type=float, metavar="X Y")
     a.add_argument("--button", choices=("left", "right", "middle"), default=_S)
     a.add_argument("--double", action="store_true", default=_S)
+    a.add_argument("--in", dest="window", default=_S, metavar="WINDOW",
+                   help="address, class/title substring, or a description ('the file browser'); focused first")
+    a.add_argument("--at", nargs=2, type=float, default=_S, metavar=("XPCT", "YPCT"),
+                   help="0.0-1.0 fractions of that window (0.5 0.5 = centre); needs --in")
     a = ps.add_parser("drag", help="drag from X Y to TO_X TO_Y")
     a.add_argument("x", type=float)
     a.add_argument("y", type=float)
@@ -284,6 +288,10 @@ def normalize(verb: str, ns: argparse.Namespace) -> tuple[dict[str, Any], dict[s
                 d["x"], d["y"] = coords
             elif coords:
                 raise Usage("click takes X Y, or nothing to click at the cursor")
+            if "at" in d:
+                if "window" not in d:
+                    raise Usage("--at XPCT YPCT needs --in WINDOW")
+                d["x_pct"], d["y_pct"] = d.pop("at")
         elif d["action"] == "scroll":
             d["scroll_dy"] = d.pop("dy")
             if "dx" in d:
