@@ -1659,7 +1659,7 @@ def build_app() -> Any:
     """The FastMCP application with the tools registered for this mode."""
     from mcp.server.fastmcp import FastMCP
 
-    app_ = FastMCP("hypruse", instructions=_instructions)
+    app_ = FastMCP("hyprdesk", instructions=_instructions)
     for observe_tool in _OBSERVE_TOOLS:
         app_.tool()(observe_tool)
     if not READONLY:
