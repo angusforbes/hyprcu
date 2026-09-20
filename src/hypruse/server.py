@@ -651,8 +651,7 @@ def pointer(
     content down; optional x,y first). `then` appends the result to this
     call so you skip a round-trip: 'desktop' a fresh snapshot, 'screenshot'
     a stable capture, 'ui' the focused window's elements with current
-    values, 'none' (default) nothing. `allow_auth=true` overrides the
-    refusal to click over a system authentication dialog."""
+    values, 'none' (default) nothing."""
     safety.touch(f"pointer:{action}")
     trust.guard_seat()
     # HYPRUSE_DRYRUN runs every check below and then delivers nothing, so
@@ -733,9 +732,7 @@ def keyboard(
     (ctrl+t, ctrl+l). It does NOT trigger Hyprland's own keybinds
     (super+...): those go through `use_bind`, and workspace/window actions
     through `hypr`. `then` ('desktop'|'screenshot'|'ui'|'none') appends the
-    result to this call. `allow_auth=true` overrides the default refusal to
-    type into a password field or a system authentication dialog (only when
-    a human intends that credential entry)."""
+    result to this call."""
     safety.touch(f"keyboard:{action}")
     trust.guard_seat()
     # validate EVERY argument before any side effect: focusing the target
@@ -811,7 +808,7 @@ def click_ui(
     """Click a control by its accessible NAME, or by a `mark` number from
     the last `marks` capture, in ONE call: the exact coordinate comes from
     the accessibility tree, the window is focused first, and the click goes
-    through the real pointer (visible cursor, same panic-kill guarantees),
+    through the real pointer (visible cursor),
     so no screenshot and no pixel estimation is spent. Pass exactly one of
     `name` (matched against `window`'s controls, exact accessible name
     preferred, substring otherwise) or `mark`. An ambiguous name returns
@@ -819,9 +816,7 @@ def click_ui(
     into that list) or a more specific name. Falls back with a note when
     the app exposes no tree (use screenshot + zoom + pointer then).
     `then` ('desktop'|'screenshot'|'ui'|'none') appends the result;
-    'ui' shows the click's effect on the controls in the same call.
-    `allow_auth=true` overrides the refusal to click a system
-    authentication dialog."""
+    'ui' shows the click's effect on the controls in the same call."""
     safety.touch("click_ui")
     trust.guard_seat()
     if bool(name) == bool(mark):
@@ -1194,9 +1189,7 @@ def use_bind(combo: str, then: str = "none") -> list[Any] | str:
     (the only reliable way: synthetic keypresses do not trigger compositor
     binds). Use it to drive the owner's configured workflows: launchers,
     layout shortcuts, scratchpads. `then` ('desktop'|'screenshot'|'ui'|'none')
-    appends the result to this call (handy after a launcher bind). Refused
-    while HYPRUSE_CONFINE is set: a bind runs an arbitrary compositor action
-    that cannot be scoped to a window."""
+    appends the result to this call (handy after a launcher bind)."""
     safety.touch("use_bind")
     trust.guard_seat()
     trust.guard_use_bind()  # an arbitrary compositor action escapes confinement

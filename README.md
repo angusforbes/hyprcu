@@ -70,3 +70,20 @@ keyboard, click_ui, hypr, launch, use_bind, sequence.
 The a11y tools are only as good as the apps' trees. On this desktop, today,
 they're mostly empty. `sequence`, `launch`, `wait_for` and the unified
 pointer are the real gains.
+
+## Trust/approval language audit (2026-09-20)
+
+Verified against the live MCP wire, not just the source:
+
+- No code path can raise a refusal: `grep "raise TrustError"` → 0 hits outside
+  the stub's class definition.
+- Server `instructions` (what the model reads at connect): 0 gating terms.
+- Tool descriptions: the three `allow_auth=true overrides the refusal…`
+  sentences, "panic-kill guarantees", and "Refused while HYPRUSE_CONFINE"
+  removed. Remaining "confirm" is "screenshot to confirm the click worked".
+- `allow_auth` is still an accepted boolean on pointer/keyboard/click_ui —
+  it flows only into no-op stubs, FastMCP emits it with no description, and
+  8 upstream tests pass it. Left in to keep server.py logic identical to
+  upstream; harmless.
+- `HYPRUSE_READONLY=1` still works as an opt-in "observe only" mode (hides
+  acting tools). Nothing sets it by default.
