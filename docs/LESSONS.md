@@ -521,5 +521,11 @@ Diagnostic that found it: same query at 2/6/13 options → 1.0/2.2/4.4 s.
 hits its 10s timeout and returns nothing, or a *previous* frame. T22 read a
 finished board and declared "O wins in 0 moves". Now: `desktop()` shows
 `display off`, `screenshot` errors immediately with the fix, and
-`hypr dpms_on` wakes it. Keep an inhibitor running during long sessions —
-detached (`setsid -f systemd-inhibit …`), not from a one-shot bash call.
+`hypr dpms_on` wakes it.
+
+**Keeping the screen on (Omarchy):** `systemd-inhibit` does NOT work here —
+Omarchy's idle isn't logind-driven. Use **`omarchy-toggle-idle`** ("Stay
+Awake"): it sets `~/.local/state/omarchy/indicators/stay-awake` and shows an
+indicator in the bar. Check with `omarchy-toggle-enabled idle-off`. The
+`omarchy toggle screensaver` command only disables the *screensaver*, not
+DPMS. Lesson 14's systemd-inhibit advice is superseded by this.
