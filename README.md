@@ -46,7 +46,7 @@ Exit codes: 0 delivered · 1 error · 2 usage · 4 nothing to act on.
 
 ## Tests
 
-`uv run pytest tests/ --ignore=tests/test_e2e.py` → 362 passed, 45 xfailed.
+`uv run pytest tests/ --ignore=tests/test_e2e.py` → 359 passed, 54 xfailed.
 The xfails are enumerated in `tests/removed_guard_tests.txt`; each asserts
 that a guard refuses something. They are `strict`, so a guard silently
 coming back would fail the suite.
@@ -98,6 +98,22 @@ later before anything is trained on them.
 Requires a Jev-compatible server at `KEV_URL` (default kev-4b on :8009, see
 pi-omarchy-computer-use/kev-serve.sh). Without one, substring and address
 targeting still work; descriptions fail with an explicit message.
+
+## No built-in judgement (2026-09-20)
+
+hyprdesk does what it's asked. Checks and controls belong in the caller, not
+here. Removed from upstream's *acting* tools, beyond the trust layer:
+
+| was | now |
+|---|---|
+| `sequence` aborts if the desktop changes between steps (default on) | runs every step; `stop_on_change=true` is opt-in |
+| `sequence` capped at 20 steps / 30 s | effectively unbounded |
+| `launch` wait clamped to 1–30 s | caller's value |
+| `wait_for` timeout clamped to 1–60 s | caller's value |
+
+The event stream still serves `wait_for` steps inside a sequence (so an
+event between steps isn't missed) — that's plumbing, not a guard.
+`tests/test_no_guards.py` pins this contract.
 
 ## Trust/approval language audit (2026-09-20)
 

@@ -1135,7 +1135,7 @@ def launch(command: str, workspace: str = "", wait_s: float = 8.0) -> dict[str, 
     raise for slow apps). Returns the new window's
     address/class/title/workspace, or a timeout note."""
     safety.touch("launch")
-    wait_s = min(max(wait_s, 1.0), 30.0)
+    wait_s = max(float(wait_s), 0.0)   # hyprdesk: caller's number, uncapped
     rule = f"[workspace {_workspace(workspace)} silent] " if workspace else ""
     if journal.dry_run():
         return f"{_DRY} run {rule + command} and wait up to {wait_s:.0f}s for its window"
@@ -1339,7 +1339,7 @@ def wait_for(event: str, match: str = "", timeout_s: float = 10) -> dict[str, An
     if names is None:
         raise ValueError(f"unknown event {event!r}: {'|'.join(_WAIT_EVENTS)}")
     safety.touch(f"wait_for:{event}")
-    timeout_s = min(max(timeout_s, 1.0), 60.0)
+    timeout_s = max(float(timeout_s), 0.0)   # hyprdesk: caller's number, uncapped
     needle = match.lower()
 
     already = _already_satisfied(event, needle)
@@ -1389,9 +1389,9 @@ def _structural(name: str, payload: dict[str, Any]) -> bool:
         return hyprctl.layer_kind(payload.get("namespace", "")) in hyprctl.FOCUS_STEALING_KINDS
     return name in _WATCHED_EVENTS
 
-_SEQ_MAX_STEPS = 20
+_SEQ_MAX_STEPS = 10_000   # hyprdesk: effectively unbounded; the caller owns the plan
 _SEQ_SETTLE = 0.2  # between-step window to let a structural change surface
-_SEQ_BUDGET = 30.0  # total wall-clock ceiling so a sequence cannot hold the seat
+_SEQ_BUDGET = 86_400.0  # hyprdesk: no wall-clock ceiling; wait_for steps carry their own timeouts
 
 
 def _event_signature(name: str, payload: dict[str, Any]) -> str:
@@ -1489,7 +1489,7 @@ def _seq_wait_for(
         raise ValueError(f"unknown event {event!r}: {'|'.join(_WAIT_EVENTS)}")
     safety.touch(f"wait_for:{event}")
     needle = str(step.get("match", "")).lower()
-    timeout_s = min(max(float(step.get("timeout_s", 10)), 1.0), 60.0, max(budget_left, 1.0))
+    timeout_s = max(float(step.get("timeout_s", 10)), 0.0)   # hyprdesk: caller's number, uncapped
 
     already = _already_satisfied(event, needle)
     if already is not None:
@@ -1515,32 +1515,34 @@ def _seq_wait_for(
 
 @journal.journaled("act")
 def sequence(
-    steps: list[dict[str, Any]], stop_on_change: bool = True, then: str = "desktop"
+    steps: list[dict[str, Any]], stop_on_change: bool = False, then: str = "desktop"
 ) -> list[Any] | str:
     """Run an ordered list of actions in ONE call, so a click/type/enter
     micro-sequence costs one round-trip instead of several. Each step is
     {"op": "pointer"|"keyboard"|"click_ui"|"hypr"|"wait_for", ...that tool's
     args}, e.g. [{"op":"pointer","action":"click","x":800,"y":60},
     {"op":"keyboard","action":"type","text":"hello","window":"0x.."},
-    {"op":"keyboard","action":"key","keys":"enter"}]. With stop_on_change
-    (default) the run stops, best-effort, when it notices a STRUCTURAL
-    change between steps that the step did not intend: a window opening
-    (e.g. a dialog), closing, or moving, a switch to an unexpected
-    workspace, or a seat-taking layer surface (a launcher or on-screen
-    keyboard) appearing, so later steps do not act on stale state.
-    Notification popups and bars are not treated as changes. It does NOT catch
-    a bare focus change, so to type into a specific window reliably give
-    that keyboard step a window= address (it focuses first). Bounded to 20
-    steps and ~30s total. `then` observes the final state ('desktop'
-    default, 'screenshot', 'ui', 'none')."""
+    {"op":"keyboard","action":"key","keys":"enter"}]. Every step runs, in
+    order, regardless of what the desktop does in between; a step that
+    raises stops the run and reports which one. To type into a specific
+    window reliably give that keyboard step a window= (address, substring
+    or description; it focuses first). Opt-in stop_on_change=true aborts
+    between steps if a window opens/closes/moves or the workspace switches
+    unexpectedly — useful when a dialog might appear, but it also fires on
+    changes you intended (Ctrl+T opening a tab), so it is off by default.
+    `then` observes the final state ('desktop' default, 'screenshot', 'ui',
+    'none')."""
     safety.touch("sequence")
     if not steps:
         raise ValueError("sequence needs at least one step")
     if len(steps) > _SEQ_MAX_STEPS:
         raise ValueError(f"sequence too long ({len(steps)} steps, max {_SEQ_MAX_STEPS})")
 
+    # hyprdesk: the event stream serves wait_for steps (so an event that fires
+    # between steps is not missed) regardless of stop_on_change, which only
+    # decides whether an unexpected event ABORTS the run.
     stream = None
-    if stop_on_change:
+    if stop_on_change or any(st.get("op") == "wait_for" for st in steps):
         with contextlib.suppress(events.EventError):
             stream = events.EventStream()
 
@@ -1561,11 +1563,12 @@ def sequence(
                 backlog[:] = [
                     (n, p) for n, p in drained if _event_signature(n, p) not in prev_expected
                 ]
-                changed = _unexpected(drained, prev_expected, _step_wait_names(step))
-                if changed:
-                    names = ", ".join(sorted({n for n, _ in changed}))
-                    stopped = f"desktop changed ({names}) before step {i}"
-                    break
+                if stop_on_change:
+                    changed = _unexpected(drained, prev_expected, _step_wait_names(step))
+                    if changed:
+                        names = ", ".join(sorted({n for n, _ in changed}))
+                        stopped = f"desktop changed ({names}) before step {i}"
+                        break
             budget_left = deadline - time.monotonic()
             if budget_left <= 0:
                 stopped = f"time budget ({_SEQ_BUDGET:.0f}s) reached before step {i}"
@@ -1599,7 +1602,7 @@ def sequence(
         if stream is not None:
             # the last step can change the desktop too; a `then` observation
             # would show it, but report it explicitly so nothing is masked
-            if stopped is None:
+            if stopped is None and stop_on_change:
                 tail = _unexpected(stream.drain(_SEQ_SETTLE), prev_expected, set())
                 if tail:
                     names = ", ".join(sorted({n for n, _ in tail}))
