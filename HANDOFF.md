@@ -119,3 +119,64 @@ problem it then debugged: starting servers from a bash tool that kills them,
 and stripping the lock check that would have said "you're typing into a
 password field". If something "flaky" appears, check whether you caused it
 before blaming the tool.
+
+---
+
+## Session 2 addendum — 2026-09-20, Grip2 (anthropic/claude-opus-5)
+
+Grip's handoff above is still accurate. What changed since:
+
+**CI was red and silently so.** `uv run ruff check .` (exactly what `.github/workflows/ci.yml`
+runs) reported **102 violations**, so no PR/release could have passed. Fixed by reformatting,
+not by adding ignores or noqa: semicolon-joined statements split, one-line `if` bodies
+expanded, long lines wrapped, imports sorted. `tools/` was delegated to a subagent under a
+formatting-only brief and the diff checked for logic changes (none). Now clean.
+
+**New `src/hyprcu/cleanup.py` — re-armed the drag button-release.** Upstream released a held
+mouse button on SIGTERM; in this fork that was *double-dead*: `safety.on_shutdown` is a no-op
+stub, AND its only caller in `verbs.py` gated on `cli._take_beacon()` which returns `True`, so
+`arm()` never executed. A verb killed mid-drag could strand a held button on the virtual
+pointer. The removed *beacon* was trust/approval machinery; the button-release is OS hygiene,
+so it got its own module rather than reviving `safety`. `safety.py` stays a no-op stub and its
+`touch()` calls are untouched. `journal.start`/`journal.stop` were dropped from the server
+lifecycle — the training log appends per row (open/write/close), so there is nothing to flush,
+and both were no-op stubs anyway.
+
+Verified with unit tests (`tests/test_cleanup.py`) *and* a real `pty.fork` harness: a process
+killed mid-hold exits 143 and `release_held` fires. `tests/test_verbs.py` updated; the obsolete
+`test_take_beacon_is_used_when_no_server_holds_it` deleted (it tested a removed concept).
+
+**Docs corrected against measurement, not memory:**
+- README said 359 passed / 54 xfailed → actually **362 / 53**.
+- README listed `journal.py` under "replaced with no-op stubs" → it is a **live training log**,
+  wired to all 15 tools via `@journal.journaled`. Only `trust.py`/`safety.py`/`skill.py` are stubs.
+- Latency claimed 150ms (README/HANDOFF) and 300ms (`cli.py` docstring) → measured **~20 ms**
+  cold for the installed binary; the 150–300 ms figure is `uv run` overhead. All three aligned.
+- `ARCHITECTURE.md` still documented upstream's trust layers, journal/dry-run/replay and a
+  `scripts/` dir that does not exist → rewritten to describe hyprcu as it is, including `pick.py`
+  (kev targeting), window-relative coordinates, and the real testing tiers.
+- `docs/TESTS.md` given a status banner: it is the historical record of the **retired**
+  `desktop.ts`, and **T22–T25 have NOT been rerun under hyprcu**.
+
+**Gates now:** `ruff check .` clean · `pytest -q` 362 passed / 53 xfailed · `pytest -m e2e`
+12 passed, 1 skipped. Pushed as `54702ea` and `49fcb39`.
+
+**kev is no longer hand-launched.** It runs as a systemd *user* unit,
+`~/.config/systemd/user/kev.service` (enabled, autostarts at login, CUDA + NF4).
+`systemctl --user status|restart kev`. Its first start hung: the process sat in `SYN-SENT` to an
+IPv6 :443 — a Hugging Face hub metadata call dying on the corporate VPN — so the unit sets
+`HF_HUB_OFFLINE=1`. All weights (kev-4b adapter + Qwen3-4B base, 7.6G) are cached, so this costs
+nothing and removes the network from the startup path. Binds in ~25s. Verified end to end:
+`pick.resolve("the AI agent pane")` → `[kev: 86% in 256ms]`. `tools/kev-serve.sh` remains as the
+manual fallback and mirrors the unit's env.
+
+**Still not done (unchanged from Grip's list):** T22–T25 under hyprcu. I attempted T22 and the
+board reader mis-read an empty grid as "O wins in 0 moves" — the `ttt.sh` grid-math fragility
+Grip flagged is real and still unfixed. The Jev A/B and the kev NF4 upstream PR are also still open.
+
+**One warning for whoever runs the live tests:** if a typed command leaves the shell in quote
+continuation, every later Enter only adds a newline and nothing executes — it looks exactly like
+"hyprcu isn't delivering Enter". Send `ctrl+c` before typing to reset. Also note
+`hyprcu sequence`'s keyboard `key` op wants a **string**, not a list; passing `{"keys":["Return"]}`
+raises `'list' object has no attribute 'split'` (the standalone `hyprcu keyboard key Return`
+takes it fine). Worth fixing or documenting.
