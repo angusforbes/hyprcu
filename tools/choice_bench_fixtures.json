@@ -1,0 +1,192 @@
+{
+ "pages": {
+  "home": [
+   {
+    "role": "button",
+    "name": "Close",
+    "y": 41
+   },
+   {
+    "role": "button",
+    "name": "Back",
+    "y": 84
+   },
+   {
+    "role": "button",
+    "name": "Reload",
+    "y": 84
+   },
+   {
+    "role": "button",
+    "name": "View site information",
+    "y": 84
+   },
+   {
+    "role": "entry",
+    "name": "Address and search bar",
+    "y": 84,
+    "value": "localhost:8765/index.html"
+   },
+   {
+    "role": "button",
+    "name": "Bookmark this tab",
+    "y": 84
+   },
+   {
+    "role": "button",
+    "name": "Extensions",
+    "y": 84
+   },
+   {
+    "role": "button",
+    "name": "You",
+    "y": 84
+   },
+   {
+    "role": "button",
+    "name": "Chromium",
+    "y": 84
+   },
+   {
+    "role": "link",
+    "name": "Contact form",
+    "y": 259
+   },
+   {
+    "role": "link",
+    "name": "About us",
+    "y": 259
+   },
+   {
+    "role": "button",
+    "name": "Increment",
+    "y": 308
+   },
+   {
+    "role": "button",
+    "name": "Tab search",
+    "y": 41
+   },
+   {
+    "role": "page tab",
+    "name": "Test Home 3 - Memory usage - 30.9 MB",
+    "y": 41
+   },
+   {
+    "role": "button",
+    "name": "Close",
+    "y": 41
+   },
+   {
+    "role": "button",
+    "name": "New Tab",
+    "y": 41
+   }
+  ],
+  "form": [
+   {
+    "role": "button",
+    "name": "Close",
+    "y": 41
+   },
+   {
+    "role": "button",
+    "name": "Back",
+    "y": 84
+   },
+   {
+    "role": "button",
+    "name": "Reload",
+    "y": 84
+   },
+   {
+    "role": "button",
+    "name": "View site information",
+    "y": 84
+   },
+   {
+    "role": "entry",
+    "name": "Address and search bar",
+    "y": 84,
+    "value": "localhost:8765/form.html"
+   },
+   {
+    "role": "button",
+    "name": "Bookmark this tab",
+    "y": 84
+   },
+   {
+    "role": "button",
+    "name": "Extensions",
+    "y": 84
+   },
+   {
+    "role": "button",
+    "name": "You",
+    "y": 84
+   },
+   {
+    "role": "button",
+    "name": "Chromium",
+    "y": 84
+   },
+   {
+    "role": "entry",
+    "name": "Your name",
+    "y": 261,
+    "value": ""
+   },
+   {
+    "role": "entry",
+    "name": "Email address",
+    "y": 289,
+    "value": ""
+   },
+   {
+    "role": "check box",
+    "name": "Subscribe to newsletter",
+    "y": 315
+   },
+   {
+    "role": "combo box",
+    "name": "Topic",
+    "y": 343
+   },
+   {
+    "role": "menu item",
+    "name": "General",
+    "y": 336
+   },
+   {
+    "role": "button",
+    "name": "Send message",
+    "y": 369
+   },
+   {
+    "role": "link",
+    "name": "Back home",
+    "y": 395
+   },
+   {
+    "role": "button",
+    "name": "Tab search",
+    "y": 41
+   },
+   {
+    "role": "page tab",
+    "name": "Contact Form",
+    "y": 41
+   },
+   {
+    "role": "button",
+    "name": "Close",
+    "y": 41
+   },
+   {
+    "role": "button",
+    "name": "New Tab",
+    "y": 41
+   }
+  ]
+ }
+}
