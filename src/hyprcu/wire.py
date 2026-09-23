@@ -35,14 +35,14 @@ PTR_MOTION, PTR_MOTION_ABSOLUTE, PTR_BUTTON, PTR_AXIS, PTR_FRAME = 0, 1, 2, 3, 4
 PTR_AXIS_SOURCE, PTR_AXIS_STOP, PTR_AXIS_DISCRETE, PTR_DESTROY = 5, 6, 7, 8
 
 MANAGER_INTERFACE = "zwlr_virtual_pointer_manager_v1"
-SEAT_INTERFACE    = "wl_seat"
-SEAT_EV_NAME      = 1
+SEAT_INTERFACE = "wl_seat"
+SEAT_EV_NAME = 1
 
 # Multi-seat: when HYPRCU_SEAT names a seat, the virtual pointer is created ON
 # that seat instead of the compositor default. Requires a compositor that
 # advertises more than one wl_seat; on stock Hyprland this finds nothing and we
 # fall back to the default seat, so the variable is safe to leave set.
-SEAT_ENV          = "HYPRCU_SEAT"
+SEAT_ENV = "HYPRCU_SEAT"
 
 BUTTONS = {
     "left": 0x110,
@@ -353,40 +353,166 @@ class VirtualPointer:
     def __exit__(self, *exc) -> None:
         self.close()
 
+
 # --- virtual keyboard -------------------------------------------------------
 # wtype cannot target a seat, so multi-seat text needs our own keyboard. The
 # trick wtype uses, and we reuse: instead of mapping characters onto the user's
-# layout, generate a keymap where consecutive keycodes ARE the characters we want
-# to type. Layout-independent and unicode-correct by construction.
+# layout, generate a keymap whose keys ARE the characters we want to type.
+# Layout-independent and unicode-correct by construction.
+#
+# WHICH keycode carries a character matters, though. wtype numbers keys 1, 2, 3...
+# in order of first appearance, and evdev 1/14/15 are Escape/Backspace/Tab.
+# Chromium derives the key identity of punctuation from the evdev code (US
+# layout), so a '/' on code 1 arrives as Escape and is dropped, and a '-' on
+# code 14 arrives as Backspace and DELETES the previous character
+# ("abcdefghijklm-z" typed as "abcdefghijklz"). Toolkits that read only the
+# keysym (foot, GTK) never noticed. So every key goes on its REAL US code when it
+# has one, and anything else only on codes that are ordinary character keys.
 
 VK_INTERFACE = "zwp_virtual_keyboard_manager_v1"
 VK_CREATE = 0
 VK_KEYMAP, VK_KEY, VK_MODIFIERS = 0, 1, 2
 XKB_KEYMAP_FORMAT_V1 = 1
 KEYCODE_BASE = 8  # evdev offset: xkb keycode = evdev + 8
+_KEYCODE_MAX = 255  # xkb keycodes are 8..255
+
+# US layout: evdev code -> (unshifted, shifted) character.
+_US_ROWS = [
+    (2, "1234567890-=", "!@#$%^&*()_+"),
+    (16, "qwertyuiop[]", "QWERTYUIOP{}"),
+    (30, "asdfghjkl;'`", 'ASDFGHJKL:"~'),
+    (43, "\\", "|"),
+    (44, "zxcvbnm,./", "ZXCVBNM<>?"),
+]
+US_CODE: dict[str, int] = {" ": 57}
+for _base, _lo, _hi in _US_ROWS:
+    for _i, (_a, _b) in enumerate(zip(_lo, _hi, strict=True)):
+        US_CODE.setdefault(_a, _base + _i)
+        US_CODE.setdefault(_b, _base + _i)
+
+# Codes whose US meaning is a printable character: the only safe homes for a
+# character that has no code of its own (or lost it to another character).
+_PRINTABLE_CODES = sorted({*US_CODE.values(), 86})  # 86: the ISO 102nd key
+
+# Named keysyms -> their real evdev code, so Return/Tab/arrows/modifiers are
+# identified correctly by apps that look at the code as well as the keysym.
+NAMED_CODE: dict[str, int] = {
+    "Escape": 1, "BackSpace": 14, "Tab": 15, "ISO_Left_Tab": 15, "Return": 28,
+    "Control_L": 29, "Shift_L": 42, "Shift_R": 54, "KP_Multiply": 55, "Alt_L": 56,
+    "space": 57, "Caps_Lock": 58, "F1": 59, "F2": 60, "F3": 61, "F4": 62, "F5": 63,
+    "F6": 64, "F7": 65, "F8": 66, "F9": 67, "F10": 68, "F11": 87, "F12": 88,
+    "KP_Enter": 96, "Control_R": 97, "Print": 99, "Alt_R": 100,
+    "ISO_Level3_Shift": 100, "Home": 102, "Up": 103, "Prior": 104, "Page_Up": 104,
+    "Left": 105, "Right": 106, "End": 107, "Down": 108, "Next": 109,
+    "Page_Down": 109, "Insert": 110, "Delete": 111, "Pause": 119, "Super_L": 125,
+    "Super_R": 126, "Menu": 127, "XF86AudioMute": 113, "XF86AudioLowerVolume": 114,
+    "XF86AudioRaiseVolume": 115, "XF86AudioNext": 163, "XF86AudioPlay": 164,
+    "XF86AudioPrev": 165, "XF86AudioStop": 166,
+}  # fmt: skip
+
+# Keysym names for characters, so a combo like ctrl+minus finds the minus key.
+_KEYSYM_CHAR = {
+    "minus": "-", "equal": "=", "plus": "+", "underscore": "_", "slash": "/",
+    "backslash": "\\", "period": ".", "comma": ",", "semicolon": ";", "colon": ":",
+    "apostrophe": "'", "quotedbl": '"', "grave": "`", "asciitilde": "~",
+    "bracketleft": "[", "bracketright": "]", "braceleft": "{", "braceright": "}",
+    "less": "<", "greater": ">", "question": "?", "exclam": "!", "at": "@",
+    "numbersign": "#", "dollar": "$", "percent": "%", "asciicircum": "^",
+    "ampersand": "&", "asterisk": "*", "parenleft": "(", "parenright": ")", "bar": "|",
+}  # fmt: skip
+
+# Characters typed as their named key, as wtype does.
+_TEXT_KEYSYM = {"\n": "Return", "\t": "Tab", "\x1b": "Escape"}
 
 
-def _keymap_for(chars: list[str]) -> bytes:
-    """An XKB keymap whose Nth key produces the Nth character."""
-    keycodes, symbols = [], []
-    for i, ch in enumerate(chars):
-        kc = KEYCODE_BASE + 1 + i
-        keycodes.append(f"    <K{i}> = {kc};")
-        symbols.append(f"    key <K{i}> {{ [ U{ord(ch):04X} ] }};")
+def _char_keysym(ch: str) -> str:
+    return _TEXT_KEYSYM.get(ch) or f"U{ord(ch):04X}"
+
+
+def preferred_code(keysym: str, ch: str | None = None) -> int | None:
+    """The real US evdev code for a keysym/character, or None if it has none."""
+    if ch is not None:
+        if ch in _TEXT_KEYSYM:
+            return NAMED_CODE[_TEXT_KEYSYM[ch]]
+        return US_CODE.get(ch)
+    if keysym in NAMED_CODE:
+        return NAMED_CODE[keysym]
+    if len(keysym) == 1:
+        return US_CODE.get(keysym)
+    return US_CODE.get(_KEYSYM_CHAR.get(keysym, ""))
+
+
+class KeycodesExhausted(WireError):
+    """More distinct keys than safe keycodes in one keymap (caller splits)."""
+
+
+def allocate_codes(items: list[tuple[str, int | None]]) -> list[int]:
+    """Assign an evdev code to each (label, preferred code): the preferred code
+    when free, otherwise a free printable-character code. Never a code whose US
+    meaning is Escape/Backspace/Tab/Enter/etc. unless that IS the key's own code.
+    Raises KeycodesExhausted when the printable pool runs out."""
+    taken: set[int] = set()
+    out: list[int | None] = [None] * len(items)
+    for i, (_label, pref) in enumerate(items):  # pass 1: real codes win
+        if pref is not None and pref not in taken:
+            out[i] = pref
+            taken.add(pref)
+    spare = (c for c in _PRINTABLE_CODES if c not in taken)
+    for i in range(len(items)):  # pass 2: everyone else on a character key
+        if out[i] is None:
+            code = next(spare, None)
+            while code is not None and code in taken:
+                code = next(spare, None)
+            if code is None:
+                raise KeycodesExhausted(f"more than {len(_PRINTABLE_CODES)} distinct keys")
+            out[i] = code
+            taken.add(code)
+    return [c for c in out if c is not None]
+
+
+def _keymap(entries: list[tuple[str, str, int]], modmap: list[str] | None = None) -> bytes:
+    """Build an XKB keymap from (label, keysym, evdev code) entries."""
+    keycodes = [f"    <{lab}> = {code + KEYCODE_BASE};" for lab, _sym, code in entries]
+    symbols = [f"    key <{lab}> {{ [ {sym} ] }};" for lab, sym, _code in entries]
     return (
         "xkb_keymap {\n"
         "  xkb_keycodes {\n"
         f"    minimum = {KEYCODE_BASE};\n"
-        f"    maximum = {KEYCODE_BASE + len(chars) + 1};\n"
-        + "\n".join(keycodes)
-        + "\n  };\n"
+        f"    maximum = {_KEYCODE_MAX};\n" + "\n".join(keycodes) + "\n  };\n"
         '  xkb_types { include "complete" };\n'
         '  xkb_compat { include "complete" };\n'
-        '  xkb_symbols "(unnamed)" {\n'
-        + "\n".join(symbols)
-        + "\n  };\n"
+        '  xkb_symbols "(unnamed)" {\n' + "\n".join(symbols + (modmap or [])) + "\n  };\n"
         "};\n"
     ).encode()
+
+
+def _keymap_for(chars: list[str]) -> tuple[bytes, dict[str, int]]:
+    """An XKB keymap producing each character, and char -> evdev code."""
+    codes = allocate_codes([(ch, preferred_code(_char_keysym(ch), ch)) for ch in chars])
+    entries = [
+        (f"K{i}", _char_keysym(ch), code)
+        for i, (ch, code) in enumerate(zip(chars, codes, strict=True))
+    ]
+    return _keymap(entries), dict(zip(chars, codes, strict=True))
+
+
+def text_segments(text: str) -> list[str]:
+    """Split text into runs that each fit one keymap (<= the safe code pool)."""
+    segs: list[str] = []
+    cur: list[str] = []
+    uniq: list[str] = []
+    for ch in text:
+        if ch not in uniq:
+            try:
+                allocate_codes([(c, preferred_code(_char_keysym(c), c)) for c in [*uniq, ch]])
+            except KeycodesExhausted:
+                segs.append("".join(cur))
+                cur, uniq = [], []
+            uniq.append(ch)
+        cur.append(ch)
+    if cur:
+        segs.append("".join(cur))
+    return segs
 
 
 # wtype's modifier names -> the XKB keysym that produces them, and the XKB real
@@ -399,6 +525,9 @@ COMBO_MOD_KEYSYM = {
     "logo": "Super_L",
     "altgr": "ISO_Level3_Shift",
 }
+# Real-modifier bits of the depressed mask (xkb core order: Shift, Lock,
+# Control, Mod1..Mod5), matching COMBO_MOD_XKB below.
+COMBO_MOD_MASK = {"shift": 1, "ctrl": 4, "alt": 8, "logo": 64, "altgr": 128}
 COMBO_MOD_XKB = {
     "shift": "Shift",
     "ctrl": "Control",
@@ -413,43 +542,36 @@ def _keymap_for_combo(key: str | None, mods: list[str]) -> tuple[bytes, dict[str
 
     Returns the keymap and a name -> evdev code map. Modifiers are pressed as real
     keys rather than announced through the modifiers event, because that is what a
-    physical keyboard does and it needs no agreement about mask numbering.
+    physical keyboard does and it needs no agreement about mask numbering. Every
+    key sits on its real US code (see allocate_codes).
     """
     entries: list[tuple[str, str]] = []  # (label, keysym)
+    prefs: list[int | None] = []
     for m in mods:
         sym = COMBO_MOD_KEYSYM.get(m)
         if sym is None:
             raise WireError(f"unknown modifier {m!r}")
         entries.append((f"M_{m}", sym))
+        prefs.append(NAMED_CODE.get(sym))
     if key:
-        entries.append(("KEY", key if len(key) > 1 else f"U{ord(key):04X}"))
+        if len(key) > 1:
+            entries.append(("KEY", key))
+            prefs.append(preferred_code(key))
+        else:
+            entries.append(("KEY", f"U{ord(key):04X}"))
+            prefs.append(preferred_code(key, key))
 
     if not entries:
         raise WireError("combo resolved to nothing")
 
-    keycodes, symbols, modmap, codes = [], [], [], {}
-    for i, (label, sym) in enumerate(entries):
-        kc = KEYCODE_BASE + 1 + i
-        keycodes.append(f"    <{label}> = {kc};")
-        symbols.append(f"    key <{label}> {{ [ {sym} ] }};")
-        codes[label] = kc - KEYCODE_BASE
-    for m in mods:
-        modmap.append(f"    modifier_map {COMBO_MOD_XKB[m]} {{ <M_{m}> }};")
-
-    km = (
-        "xkb_keymap {\n"
-        "  xkb_keycodes {\n"
-        f"    minimum = {KEYCODE_BASE};\n"
-        f"    maximum = {KEYCODE_BASE + len(entries) + 1};\n"
-        + "\n".join(keycodes)
-        + "\n  };\n"
-        '  xkb_types { include "complete" };\n'
-        '  xkb_compat { include "complete" };\n'
-        '  xkb_symbols "(unnamed)" {\n'
-        + "\n".join(symbols + modmap)
-        + "\n  };\n};\n"
+    codes_list = allocate_codes(
+        [(lab, pref) for (lab, _s), pref in zip(entries, prefs, strict=True)]
     )
-    return km.encode(), codes
+    modmap = [f"    modifier_map {COMBO_MOD_XKB[m]} {{ <M_{m}> }};" for m in mods]
+    km = _keymap(
+        [(lab, sym, code) for (lab, sym), code in zip(entries, codes_list, strict=True)], modmap
+    )
+    return km, {lab: code for (lab, _s), code in zip(entries, codes_list, strict=True)}
 
 
 class VirtualKeyboard(VirtualPointer):
@@ -462,19 +584,42 @@ class VirtualKeyboard(VirtualPointer):
     def type_text(self, text: str) -> None:
         if not text:
             return
+        # A keymap holds a bounded set of safe keycodes; long unicode text is
+        # typed in runs, each on a fresh keyboard with its own keymap.
+        for segment in text_segments(text):
+            chars = list(dict.fromkeys(segment))  # unique, order preserved
+            keymap, codes = _keymap_for(chars)
+            kb = self._new_keyboard()
+            self._upload_keymap(kb, keymap)
+            for ch in segment:
+                code = codes[ch]  # evdev code; compositor adds the +8 offset
+                for state in (PRESSED, RELEASED):
+                    self._send(kb, VK_KEY, struct.pack("<III", _now_ms(), code, state))
+                self._roundtrip()
 
-        chars = list(dict.fromkeys(text))  # unique, order preserved
-        keymap = _keymap_for(chars)
-        index = {ch: i for i, ch in enumerate(chars)}
-
-        kb = self._new_keyboard()
-
-        self._upload_keymap(kb, keymap)
-        for ch in text:
-            code = index[ch] + 1  # evdev code; compositor adds the +8 offset
-            for state in (PRESSED, RELEASED):
-                self._send(kb, VK_KEY, struct.pack("<III", _now_ms(), code, state))
-            self._roundtrip()
+    def _keyboard_seat(self) -> int:
+        """A bound wl_seat object for create_virtual_keyboard. Unlike the pointer
+        manager, the keyboard manager does not accept a null seat (0), so on the
+        default seat we bind the compositor's first wl_seat once and reuse it."""
+        if self._seat:
+            return self._seat
+        cached = getattr(self, "_default_seat", 0)
+        if cached:
+            return cached
+        seats = [(n, v) for n, i, v in self._globals_cache if i == SEAT_INTERFACE]
+        if not seats:
+            raise WireError(f"compositor does not advertise {SEAT_INTERFACE}")
+        name, version = seats[0]
+        oid = self._new_id()
+        self._send(
+            self._registry,
+            0,
+            struct.pack("<I", name)
+            + wl_string(SEAT_INTERFACE)
+            + struct.pack("<II", min(version, 9), oid),
+        )
+        self._default_seat = oid
+        return oid
 
     def _new_keyboard(self) -> int:
         """Bind the manager and create a virtual keyboard on our seat."""
@@ -482,6 +627,9 @@ class VirtualKeyboard(VirtualPointer):
         if not vk:
             raise WireError(f"compositor does not advertise {VK_INTERFACE}")
         name, version = vk[0]
+        # Resolve the seat FIRST: binding it allocates a new object id, and Wayland
+        # requires new ids to be used in the order they were allocated.
+        seat = self._keyboard_seat()
         mgr = self._new_id()
         self._send(
             self._registry,
@@ -491,7 +639,7 @@ class VirtualKeyboard(VirtualPointer):
             + struct.pack("<II", min(version, 1), mgr),
         )
         kb = self._new_id()
-        self._send(mgr, VK_CREATE, struct.pack("<II", self._seat, kb))
+        self._send(mgr, VK_CREATE, struct.pack("<II", seat, kb))
         self._roundtrip()
         return kb
 
@@ -510,17 +658,28 @@ class VirtualKeyboard(VirtualPointer):
     def key_combo(self, mods: list[str], key: str | None) -> None:
         """Press a combo on this seat.
 
-        Modifiers are pressed as real keys, in order, then released in reverse.
-        That mirrors a physical keyboard and avoids depending on any agreement
-        about modifier mask numbering.
+        Modifiers are pressed as real keys, in order, then released in reverse,
+        mirroring a physical keyboard. That alone is not enough: the compositor
+        does not derive modifier state from a VIRTUAL keyboard's key events, so
+        the depressed mask is also announced with the modifiers request (as
+        wtype does), or ctrl+a arrives as a plain 'a'.
         """
         keymap, codes = _keymap_for_combo(key, mods)
         kb = self._new_keyboard()
         self._upload_keymap(kb, keymap)
+        mask = 0
+        for m in mods:
+            mask |= COMBO_MOD_MASK[m]
 
-        order = [f"M_{m}" for m in mods] + (["KEY"] if key else [])
-        for label in order:
-            self._send(kb, VK_KEY, struct.pack("<III", _now_ms(), codes[label], PRESSED))
-        for label in reversed(order):
-            self._send(kb, VK_KEY, struct.pack("<III", _now_ms(), codes[label], RELEASED))
+        for m in mods:
+            self._send(kb, VK_KEY, struct.pack("<III", _now_ms(), codes[f"M_{m}"], PRESSED))
+        if mask:
+            self._send(kb, VK_MODIFIERS, struct.pack("<IIII", mask, 0, 0, 0))
+        if key:
+            for state in (PRESSED, RELEASED):
+                self._send(kb, VK_KEY, struct.pack("<III", _now_ms(), codes["KEY"], state))
+        if mask:
+            self._send(kb, VK_MODIFIERS, struct.pack("<IIII", 0, 0, 0, 0))
+        for m in reversed(mods):
+            self._send(kb, VK_KEY, struct.pack("<III", _now_ms(), codes[f"M_{m}"], RELEASED))
         self._roundtrip()

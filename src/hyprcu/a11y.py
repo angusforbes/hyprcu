@@ -1,10 +1,15 @@
-"""Accessibility tree via AT-SPI, read through the busctl CLI (no new deps).
+"""Accessibility tree via AT-SPI, over an in-process D-Bus connection.
 
 AT-SPI publishes every accessible app's widget tree on a private D-Bus (the
 "a11y bus"), independent of the display server, so it works on Wayland.
-hyprcu reads it by shelling out to busctl, the same pattern as
-grim/wtype/hyprctl, and pairs it with hyprctl window geometry to turn
+hyprcu reads it and pairs it with hyprctl window geometry to turn
 window-relative element positions into global click points.
+
+Transport: one in-process connection (jeepney, pure Python) per Bus. A tree
+walk makes ~5 calls per node and hundreds of calls per window; the original
+busctl-subprocess transport paid a process spawn for each (~10 ms) and took
+3-5 s to list a Chromium window. busctl remains as the fallback when the
+native connection cannot be opened, with identical results.
 
 Why window-relative, not screen: on Wayland an app does not know its own
 global position, so AT-SPI SCREEN coordinates come back unreliable
@@ -19,7 +24,19 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import time
 from typing import Any
+
+try:  # optional at import time so a missing wheel degrades to busctl
+    from jeepney import DBusAddress, new_method_call
+    from jeepney.io.blocking import open_dbus_connection
+    from jeepney.low_level import HeaderFields
+    from jeepney.wrappers import DBusErrorResponse, unwrap_msg
+except ImportError:  # pragma: no cover - exercised only without jeepney
+    open_dbus_connection = None  # type: ignore[assignment]
+
+_NATIVE_TIMEOUT = 10.0  # seconds; same budget as the busctl subprocess
+_PIPELINE_CHUNK = 128  # requests in flight at once; keeps socket buffers small
 
 
 class A11yError(RuntimeError):
@@ -29,6 +46,7 @@ class A11yError(RuntimeError):
 _ACCESSIBLE = "org.a11y.atspi.Accessible"
 _COMPONENT = "org.a11y.atspi.Component"
 _ACTION = "org.a11y.atspi.Action"
+_COLLECTION = "org.a11y.atspi.Collection"
 _TEXT = "org.a11y.atspi.Text"
 _VALUE = "org.a11y.atspi.Value"
 _REGISTRY_SVC = "org.a11y.atspi.Registry"
@@ -110,20 +128,184 @@ def bus_address() -> str:
     return str(data[0])
 
 
+def _typed_args(sig_args: tuple[str, ...]) -> tuple[str, tuple[Any, ...]]:
+    """busctl-style (signature, *string values) -> (signature, typed values).
+    Only the basic types AT-SPI calls here use: i/u/n/q/x/t ints, b, d, s/o."""
+    if not sig_args:
+        return "", ()
+    sig, values = sig_args[0], sig_args[1:]
+    if len(sig) != len(values):
+        raise A11yError(f"signature {sig!r} does not match {len(values)} argument(s)")
+    out: list[Any] = []
+    for code, raw in zip(sig, values, strict=True):
+        if code in "iunqxty":
+            out.append(int(raw))
+        elif code == "b":
+            out.append(raw.lower() in ("1", "true", "yes"))
+        elif code == "d":
+            out.append(float(raw))
+        elif code in "so":
+            out.append(raw)
+        else:
+            raise A11yError(f"unsupported D-Bus argument type {code!r}")
+    return sig, tuple(out)
+
+
+def _plain(value: Any) -> Any:
+    """jeepney returns tuples for structs and (signature, value) for variants;
+    normalize to the lists busctl's JSON gave, so callers see one shape."""
+    if isinstance(value, tuple):
+        return [_plain(v) for v in value]
+    if isinstance(value, list):
+        return [_plain(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _plain(v) for k, v in value.items()}
+    return value
+
+
 class Bus:
     """A connection to the a11y bus: every AT-SPI object is a (service,
-    object-path) pair reached with these two calls."""
+    object-path) pair reached with these two calls.
+
+    Opens one native D-Bus connection lazily and reuses it for every call;
+    if it cannot be opened, the Bus falls back to busctl for its lifetime.
+    Not thread-safe: make one Bus per tool call (connect() does)."""
 
     def __init__(self, address: str):
         self.address = address
+        self._conn: Any = None
+        self._native = open_dbus_connection is not None
+
+    def _connection(self) -> Any:
+        if self._conn is None:
+            try:
+                self._conn = open_dbus_connection(bus=self.address)
+            except Exception:  # unreachable/odd address: keep working via busctl
+                self._native = False
+                return None
+        return self._conn
+
+    def _native_call(
+        self, svc: str, path: str, iface: str, method: str, sig_args: tuple[str, ...]
+    ) -> list[Any] | None:
+        conn = self._connection() if self._native else None
+        if conn is None:
+            return None
+        sig, args = _typed_args(sig_args)
+        msg = new_method_call(DBusAddress(path, bus_name=svc, interface=iface), method, sig, args)
+        try:
+            reply = conn.send_and_get_reply(msg, timeout=_NATIVE_TIMEOUT)
+        except TimeoutError as exc:
+            raise A11yError(f"{method} timed out (unresponsive app?)") from exc
+        except (OSError, ConnectionError) as exc:
+            raise A11yError(f"a11y bus connection failed: {exc}") from exc
+        try:
+            body = unwrap_msg(reply)
+        except DBusErrorResponse as exc:
+            raise A11yError(f"{method} failed: {exc.name}: {exc.data}") from exc
+        return _plain(tuple(body))
 
     def call(self, svc: str, path: str, iface: str, method: str, *sig_args: str) -> list[Any]:
         """Return the method's out-args as a list (data[0] is the first)."""
+        out = self._native_call(svc, path, iface, method, sig_args)
+        if out is not None:
+            return out
         return _busctl(self.address, "call", svc, path, iface, method, *sig_args)["data"]
 
     def prop(self, svc: str, path: str, iface: str, name: str) -> Any:
-        """A property value (busctl returns it directly, not list-wrapped)."""
+        """A property value (unwrapped from its variant, not list-wrapped)."""
+        out = self._native_call(
+            svc, path, "org.freedesktop.DBus.Properties", "Get", ("ss", iface, name)
+        )
+        if out is not None:
+            _sig, value = out[0]  # variant -> [signature, value]
+            return value
         return _busctl(self.address, "get-property", svc, path, iface, name)["data"]
+
+    def _message(self, req: tuple[Any, ...]) -> Any:
+        kind, svc, path, iface, member, *rest = req
+        if kind == "prop":
+            addr = DBusAddress(path, bus_name=svc, interface="org.freedesktop.DBus.Properties")
+            return new_method_call(addr, "Get", "ss", (iface, member))
+        sig, args = _typed_args(tuple(rest))
+        return new_method_call(DBusAddress(path, bus_name=svc, interface=iface), member, sig, args)
+
+    @staticmethod
+    def _decode(reply: Any, req: tuple[Any, ...]) -> Any:
+        try:
+            body = _plain(tuple(unwrap_msg(reply)))
+        except DBusErrorResponse as exc:
+            return A11yError(f"{req[4]} failed: {exc.name}: {exc.data}")
+        return body[0][1] if req[0] == "prop" else body
+
+    def many(self, reqs: list[tuple[Any, ...]]) -> list[Any]:
+        """Run many independent requests, pipelined: send them all, then read
+        the replies, so N calls cost about one round trip instead of N.
+
+        Each request is ("call", svc, path, iface, method, *busctl_sig_args)
+        or ("prop", svc, path, iface, name). Returns one entry per request,
+        in order: the same value call()/prop() would return, or the
+        A11yError it would have raised (returned, not raised, so one dead
+        element does not sink the batch)."""
+        conn = self._connection() if self._native else None
+        if conn is None:
+            out: list[Any] = []
+            for req in reqs:
+                try:
+                    if req[0] == "prop":
+                        out.append(self.prop(*req[1:5]))
+                    else:
+                        out.append(self.call(*req[1:]))
+                except A11yError as exc:
+                    out.append(exc)
+            return out
+        results: list[Any] = [None] * len(reqs)
+        for start in range(0, len(reqs), _PIPELINE_CHUNK):
+            pending: dict[int, int] = {}
+            try:
+                for i in range(start, min(start + _PIPELINE_CHUNK, len(reqs))):
+                    serial = next(conn.outgoing_serial)
+                    conn.send(self._message(reqs[i]), serial=serial)
+                    pending[serial] = i
+                deadline = time.monotonic() + _NATIVE_TIMEOUT
+                while pending:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError
+                    msg = conn.receive(timeout=remaining)
+                    i = pending.pop(msg.header.fields.get(HeaderFields.reply_serial, -1), -1)
+                    if i >= 0:
+                        results[i] = self._decode(msg, reqs[i])
+            except TimeoutError as exc:
+                raise A11yError("a11y batch timed out (unresponsive app?)") from exc
+            except (OSError, ConnectionError) as exc:
+                raise A11yError(f"a11y bus connection failed: {exc}") from exc
+        return results
+
+    def get_matches(
+        self, svc: str, path: str, rule: tuple[Any, ...]
+    ) -> list[tuple[str, str]] | None:
+        """AT-SPI Collection.GetMatches: every descendant matching `rule`, in
+        document order, in ONE call. None when unavailable (no native
+        connection, or the app does not implement Collection), so the
+        caller walks the tree instead."""
+        conn = self._connection() if self._native else None
+        if conn is None:
+            return None
+        addr = DBusAddress(path, bus_name=svc, interface=_COLLECTION)
+        msg = new_method_call(addr, "GetMatches", "(aiia{ss}iaiiasib)uib", (rule, 1, 0, True))
+        try:
+            body = unwrap_msg(conn.send_and_get_reply(msg, timeout=_NATIVE_TIMEOUT))
+        except (DBusErrorResponse, TimeoutError, OSError, ConnectionError):
+            return None
+        return [(str(s), str(p)) for s, p in body[0]]
+
+    def close(self) -> None:
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            finally:
+                self._conn = None
 
     def conn_pid(self, svc: str) -> int | None:
         try:
@@ -224,9 +406,17 @@ def _window_extents(bus: Bus, svc: str, path: str) -> tuple[int, int, int, int] 
     unrendered tab page report absurd origins), and those must not be
     offered as click targets."""
     try:
-        x, y, w, h = bus.call(svc, path, _COMPONENT, "GetExtents", "u", str(COORD_WINDOW))[0]
+        return _parse_extents(bus.call(svc, path, _COMPONENT, "GetExtents", "u", str(COORD_WINDOW)))
+    except A11yError:
+        return None
+
+
+def _parse_extents(data: Any) -> tuple[int, int, int, int] | None:
+    """GetExtents out-args -> sane (x, y, w, h), or None (see _window_extents)."""
+    try:
+        x, y, w, h = data[0]
         x, y, w, h = int(x), int(y), int(w), int(h)
-    except (A11yError, IndexError, ValueError):
+    except (IndexError, TypeError, ValueError):
         return None
     if w <= 0 or h <= 0:
         return None
@@ -237,8 +427,16 @@ def _window_extents(bus: Bus, svc: str, path: str) -> tuple[int, int, int, int] 
 
 def _states(bus: Bus, svc: str, path: str) -> set[int]:
     try:
-        words = bus.call(svc, path, _ACCESSIBLE, "GetState")[0]
-    except (A11yError, IndexError):
+        return _parse_states(bus.call(svc, path, _ACCESSIBLE, "GetState"))
+    except A11yError:
+        return set()
+
+
+def _parse_states(data: Any) -> set[int]:
+    """GetState out-args (a 2-word uint32 bitfield) -> set of state numbers."""
+    try:
+        words = [int(w) for w in data[0]]
+    except (IndexError, TypeError, ValueError):
         return set()
     out: set[int] = set()
     for wi, word in enumerate(words):
@@ -306,6 +504,104 @@ def _clickable_now(states: set[int]) -> bool:
     return _STATE_SENSITIVE in states or _STATE_ENABLED in states
 
 
+_MATCH_ALL, _MATCH_ANY = 1, 2  # AtspiCollectionMatchType
+
+
+def _bitset(bits: Any, words: int) -> list[int]:
+    """Pack bit numbers into D-Bus int32 words (signed, as 'ai' requires)."""
+    out = [0] * words
+    for b in bits:
+        out[b // 32] |= 1 << (b % 32)
+    return [w - (1 << 32) if w >= 1 << 31 else w for w in out]
+
+
+def match_rule(roles: Any = None, states: Any = None) -> tuple[Any, ...]:
+    """An AT-SPI Collection MatchRule: descendants having ANY of `roles` and
+    ALL of `states`. Omitted criteria match everything (empty set + ALL)."""
+    return (
+        _bitset(states or (), 2),
+        _MATCH_ALL,
+        {},
+        _MATCH_ALL,
+        _bitset(roles, 4) if roles else [],
+        _MATCH_ANY if roles else _MATCH_ALL,
+        [],
+        _MATCH_ALL,
+        False,
+    )
+
+
+def _find_elements_collection(
+    bus: Any, app_svc: str, app_path: str, needle: str, actionable: bool, max_results: int
+) -> list[dict[str, Any]] | None:
+    """find_elements via Collection.GetMatches + pipelined reads: the same
+    filters and result shape as the walk, in ~4 round trips instead of ~5
+    per node. None when the bus or app cannot do it (caller walks)."""
+    get_matches = getattr(bus, "get_matches", None)
+    many = getattr(bus, "many", None)
+    if get_matches is None or many is None:
+        return None
+    cands = get_matches(
+        app_svc, app_path, match_rule(roles=ACTIONABLE_ROLE_NUMS if actionable else None)
+    )
+    if cands is None:
+        return None
+    if not actionable:  # the walk includes its start node; GetMatches returns descendants
+        cands = [(app_svc, app_path), *cands]
+
+    names = [
+        "" if isinstance(n, A11yError) or n is None else str(n)
+        for n in many([("prop", s, p, _ACCESSIBLE, "Name") for s, p in cands])
+    ]
+    named = [(c, n) for c, n in zip(cands, names, strict=True) if not needle or needle in n.lower()]
+    roles = many([("call", s, p, _ACCESSIBLE, "GetRole") for (s, p), _ in named])
+
+    staged: list[tuple[str, str, str, int]] = []
+    for ((svc, path), nm), raw in zip(named, roles, strict=True):
+        try:
+            role_num = -1 if isinstance(raw, A11yError) else int(raw[0])
+        except (IndexError, TypeError, ValueError):
+            role_num = -1
+        if actionable and role_num not in ACTIONABLE_ROLE_NUMS:
+            continue
+        if not nm and not needle and role_num not in _VALUE_BEARING_ROLES:
+            continue
+        staged.append((svc, path, nm, role_num))
+
+    reqs: list[tuple[Any, ...]] = []
+    for svc, path, _nm, _r in staged:
+        reqs.append(("call", svc, path, _COMPONENT, "GetExtents", "u", str(COORD_WINDOW)))
+        reqs.append(("call", svc, path, _ACCESSIBLE, "GetState"))
+        reqs.append(("call", svc, path, _ACCESSIBLE, "GetRoleName"))
+    details = many(reqs)
+
+    results: list[dict[str, Any]] = []
+    for k, (svc, path, nm, role_num) in enumerate(staged):
+        ext_raw, st_raw, rn_raw = details[3 * k : 3 * k + 3]
+        ext = None if isinstance(ext_raw, A11yError) else _parse_extents(ext_raw)
+        if ext is None:
+            continue
+        states = set() if isinstance(st_raw, A11yError) else _parse_states(st_raw)
+        try:
+            role_name = "" if isinstance(rn_raw, A11yError) else str(rn_raw[0])
+        except (IndexError, TypeError):
+            role_name = ""
+        results.append(
+            {
+                "role": role_name,
+                "name": nm,
+                "extent": ext,
+                "clickable": _clickable_now(states),
+                **element_value(bus, svc, path, role_num, states),
+                "svc": svc,
+                "path": path,
+            }
+        )
+        if len(results) >= max_results:
+            break
+    return results
+
+
 def find_elements(
     bus: Bus,
     app_svc: str,
@@ -323,6 +619,9 @@ def find_elements(
     'nothing there' from 'stopped early' instead of reporting a false
     absence."""
     needle = name.lower()
+    fast = _find_elements_collection(bus, app_svc, app_path, needle, actionable, max_results)
+    if fast is not None:
+        return fast, False
     results: list[dict[str, Any]] = []
     stack: list[tuple[str, str]] = [(app_svc, app_path)]
     visited = 0
@@ -366,6 +665,12 @@ def focused_role(bus: Bus, app_svc: str, app_path: str, max_nodes: int = 200) ->
     Bounded because it runs before typing: a fast, best-effort check for the
     auth guard, not an exhaustive walk. Prunes into non-showing subtrees so
     it does not spend the budget on hidden pages."""
+    get_matches = getattr(bus, "get_matches", None)
+    if get_matches is not None:
+        # One call for every focused descendant, instead of a state read per node.
+        focused = get_matches(app_svc, app_path, match_rule(states=[_STATE_FOCUSED]))
+        if focused is not None:
+            return _role_num(bus, *focused[0]) if focused else None
     stack: list[tuple[str, str]] = [(app_svc, app_path)]
     visited = 0
     while stack and visited < max_nodes:

@@ -108,9 +108,7 @@ def combo_to_wtype_args(mods: list[str], key: str | None) -> list[str]:
 def _wtype(args: list[str], stdin: str | None = None) -> None:
     if shutil.which("wtype") is None:
         raise InputError("wtype not found, install wtype for keyboard input")
-    proc = subprocess.run(
-        ["wtype", *args], input=stdin, text=True, capture_output=True, timeout=15
-    )
+    proc = subprocess.run(["wtype", *args], input=stdin, text=True, capture_output=True, timeout=15)
     if proc.returncode != 0:
         raise InputError(f"wtype failed: {proc.stderr.strip()}")
 
@@ -141,6 +139,12 @@ def type_text(text: str) -> None:
         if _on_named_seat():
             _with_keyboard(lambda k: k.type_text(text))
             return
+        # Our own keyboard even on the default seat: wtype numbers keys 1, 2, 3...
+        # so punctuation lands on Escape/Backspace/Tab codes and Chromium drops or
+        # misreads it (see wire.allocate_codes). wtype only if we cannot connect.
+        if _connect_keyboard():
+            _with_keyboard(lambda k: k.type_text(text))
+            return
         _wtype(["-"], stdin=text)  # '-' reads stdin: safe for any content
 
 
@@ -150,7 +154,7 @@ def key_combo(combo: str) -> None:
     with _seat_lock:
         # Same reason as type_text: wtype cannot name a seat, so on a second seat
         # the combo would fire on the human's keyboard.
-        if _on_named_seat():
+        if _on_named_seat() or _connect_keyboard():
             _with_keyboard(lambda k: k.key_combo(mods, key))
             return
         _wtype(combo_to_wtype_args(mods, key))
@@ -175,6 +179,19 @@ def release_held() -> None:
         with contextlib.suppress(Exception):
             _vp.button(_held_button, RELEASED)
     _held_button = None
+
+
+def _connect_keyboard() -> bool:
+    """Open (or reuse) our virtual keyboard; False if the compositor refuses,
+    so the caller can fall back to wtype BEFORE any key is sent."""
+    global _vk
+    if _vk is not None:
+        return True
+    try:
+        _vk = VirtualKeyboard()
+    except (WireError, OSError):
+        return False
+    return True
 
 
 def _with_keyboard(fn: Callable[[VirtualKeyboard], Any]) -> Any:
