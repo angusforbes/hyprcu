@@ -505,6 +505,7 @@ def _clickable_now(states: set[int]) -> bool:
 
 
 _MATCH_ALL, _MATCH_ANY = 1, 2  # AtspiCollectionMatchType
+DOCUMENT_WEB_ROLE = 95  # AtspiRole DOCUMENT_WEB (Chromium/Firefox/WebKit pages)
 
 
 def _bitset(bits: Any, words: int) -> list[int]:
@@ -546,6 +547,16 @@ def _find_elements_collection(
     )
     if cands is None:
         return None
+    cands = list(cands)
+    rule = match_rule(roles=ACTIONABLE_ROLE_NUMS if actionable else None)
+    # Which candidates live inside a web document: Chromium reports those in
+    # physical pixels but its own UI in a scaled unit, so the caller must scale
+    # the two differently (see server._ui_read).
+    in_doc: dict[tuple[str, str], tuple[str, str]] = {}
+    for doc in get_matches(app_svc, app_path, match_rule(roles=[DOCUMENT_WEB_ROLE])) or []:
+        in_doc[doc] = doc
+        for sub in get_matches(doc[0], doc[1], rule) or []:
+            in_doc.setdefault(sub, doc)
     if not actionable:  # the walk includes its start node; GetMatches returns descendants
         cands = [(app_svc, app_path), *cands]
 
@@ -586,20 +597,37 @@ def _find_elements_collection(
             role_name = "" if isinstance(rn_raw, A11yError) else str(rn_raw[0])
         except (IndexError, TypeError):
             role_name = ""
-        results.append(
-            {
-                "role": role_name,
-                "name": nm,
-                "extent": ext,
-                "clickable": _clickable_now(states),
-                **element_value(bus, svc, path, role_num, states),
-                "svc": svc,
-                "path": path,
-            }
-        )
+        item = {
+            "role": role_name,
+            "name": nm,
+            "extent": ext,
+            "clickable": _clickable_now(states),
+            **element_value(bus, svc, path, role_num, states),
+            "svc": svc,
+            "path": path,
+        }
+        if (svc, path) in in_doc:
+            item["document"] = in_doc[(svc, path)]
+        results.append(item)
         if len(results) >= max_results:
             break
     return results
+
+
+def frame_size(bus: Any, svc: str, path: str) -> tuple[int, int] | None:
+    """The toplevel's own reported (w, h), in the toolkit's UI unit. When
+    `path` is an application root (single-window apps), its one frame child."""
+    ext = _window_extents(bus, svc, path)
+    if ext is None:
+        kids = _children(bus, svc, path)
+        if len(kids) != 1:
+            return None
+        ext = _window_extents(bus, *kids[0])
+    return (ext[2], ext[3]) if ext else None
+
+
+def document_extents(bus: Any, doc: tuple[str, str]) -> tuple[int, int, int, int] | None:
+    return _window_extents(bus, doc[0], doc[1])
 
 
 def find_elements(

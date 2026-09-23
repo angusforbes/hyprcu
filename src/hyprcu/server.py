@@ -368,6 +368,50 @@ def _guarded_active_client() -> dict[str, Any] | None:
     # HyprctlError (IPC down/timeout) propagates: the guard fails closed
 
 
+def _monitor_scale(client: dict[str, Any]) -> float:
+    with contextlib.suppress(Exception):
+        for m in hyprctl.query("monitors"):
+            if m.get("id") == client.get("monitor"):
+                return float(m.get("scale", 1.0)) or 1.0
+    return 1.0
+
+
+def _fits(box: tuple[int, int, int, int], s: float, aw: int, ah: int) -> bool:
+    x, y, w, h = box
+    tol = 8
+    return (x + w) * s <= aw + tol and (y + h) * s <= ah + tol
+
+
+def _a11y_scales(
+    bus: Any, frame: tuple[str, str], client: dict[str, Any], elements: list[dict[str, Any]]
+) -> dict[Any, float]:
+    """Window-relative extents -> logical pixels, per coordinate space.
+
+    Toolkits disagree on units. GTK reports logical pixels (scale 1). Chromium
+    reports its own UI (tabs, toolbar) in a scaled unit (its frame claims
+    1147x705 for a 1558x958 window: x1.358) and web page content in PHYSICAL
+    pixels (x1/monitor-scale). So: the UI scale is the window's real size over
+    the frame's reported size, and each web document gets the largest of
+    {1, 1/monitor scale, UI scale} that makes it fit inside the window.
+    Returns {None: ui_scale, document: its scale}."""
+    aw, ah = client["size"]
+    ui = 1.0
+    size = a11y.frame_size(bus, *frame)
+    if size and size[0] > 0:
+        ratio = aw / size[0]
+        if abs(ratio - 1.0) > 0.02:
+            ui = ratio
+    scales: dict[Any, float] = {None: ui}
+    docs = {e["document"] for e in elements if e.get("document")}
+    if docs:
+        cands = sorted({1.0, 1.0 / _monitor_scale(client), ui}, reverse=True)
+        for doc in docs:
+            box = a11y.document_extents(bus, doc)
+            fitting = [s for s in cands if box and _fits(box, s, aw, ah)]
+            scales[doc] = fitting[0] if fitting else 1.0
+    return scales
+
+
 def _ui_read(window: str = "", name: str = "", actionable: bool = True) -> list[Any] | str:
     """Shared body of the `ui` tool: a window's accessible elements with
     global click points and current values, or a fall-back-to-vision
@@ -384,6 +428,10 @@ def _ui_read(window: str = "", name: str = "", actionable: bool = True) -> list[
         elements, truncated = a11y.find_elements(
             bus, frame[0], frame[1], name=name, actionable=actionable
         )
+        try:
+            scales = _a11y_scales(bus, frame, client, elements)
+        except Exception:  # unit detection is a refinement; never fail the read
+            scales = {None: 1.0}
     except a11y.A11yError as exc:
         return f"accessibility read failed: {exc}; use screenshot + zoom instead"
     ax, ay = client["at"]
@@ -391,7 +439,8 @@ def _ui_read(window: str = "", name: str = "", actionable: bool = True) -> list[
     out = []
     for e in elements:
         ex, ey, ew, eh = e["extent"]
-        x, y = ax + ex + ew // 2, ay + ey + eh // 2
+        s = scales.get(e.get("document"), scales[None])
+        x, y = ax + round((ex + ew / 2) * s), ay + round((ey + eh / 2) * s)
         # the window rect is authoritative: a point outside it belongs to a
         # widget the toolkit did not really lay out (an unrendered tab page),
         # and clicking it would land on some other window
