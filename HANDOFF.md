@@ -138,6 +138,14 @@ WAYLAND-1) — that is why the headless output exists.
   (~0.5 s); X on the board -> 4 crops incl. O's reply (1.9 s, the 0.3 s quiet
   period caught Google's delayed move); foot command -> 2 crops, 0.7% of
   screen (0.7 s). Not yet measured on the 1.6x host monitor.
+- **T22 replay with `--then changes` (2026-09-23): 60 s, 8 turns, 2 image
+  reads** (vs ~6.5 min, 13 turns, 5 screenshots before; ~6.5x faster). One
+  whole-screen image for the page load, one 192x90 board crop; the other moves
+  were read from the change list alone (which squares changed) and the win
+  from a11y ("X X X X WINNER!"). Caveat: the board layout was known from the
+  first game, which saved ~1.5 min of exploration.
+- Reboot wiped /tmp: the test pages now live in `tools/nested-site/` and
+  `tools/nested-session.sh` copies them.
 - **Friction to fix:** `sequence` steps use `op` (error says "unknown step op
   None" when given `tool`); `hypr` names its window arg `target` while every
   other tool uses `window`; Jev latency now 0.6–0.9 s (was ~0.3 s).

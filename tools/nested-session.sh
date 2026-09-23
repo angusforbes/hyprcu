@@ -15,7 +15,9 @@
 # Usage: tools/nested-session.sh [--no-apps]
 set -euo pipefail
 D=/tmp/hyprcu-nested
+HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$D/site"
+cp "$HERE"/nested-site/*.html "$D/site/"  # test pages live in the repo; /tmp does not survive a reboot
 [ -f "$D/hyprland.lua" ] || cat >"$D/hyprland.lua" <<'EOF'
 -- Minimal nested Hyprland for hyprcu testing (no Omarchy autostart/bar).
 hl.monitor({ output = "", mode = "1600x1000", position = "auto", scale = 1 })
