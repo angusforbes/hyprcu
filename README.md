@@ -86,6 +86,22 @@ Results carry `[kev: 99% in 229ms]` so you can see when it was used.
     hyprcu hypr focus_window "the file browser"
     hyprcu keyboard type "hello" --window "the shell on workspace 2"
 
+**Choosers: Jev or kev.** `HYPRCU_CHOOSER=jev` sends these choices to
+TypeSafe's Jev (`TYPESAFE_API_KEY` from the environment) with an explicit
+"none of these" option; the default `kev` is the local model with the
+probability gate. Jev is opt-in because window titles and control names go to
+TypeSafe. `tools/choice_bench.py` (29 synthetic queries, nothing from the live
+desktop): Jev 28/29 at ~0.6 s; kev-4b 20-25/29 at 1.7-2.8 s on a laptop GPU
+(kev slows as the option list grows).
+
+**`click_ui` by description.** When no control is *named* what you asked,
+`click_ui` treats it as a description and the chooser picks among the
+window's clickable controls (browser controls are labelled web page vs
+toolbar), or refuses when none fits:
+
+    hyprcu click_ui "submit the form" --window "the web browser"
+    # clicked button 'Send message' ... [jev: 92% in 294ms]
+
 **Window-relative clicks.** `pointer` takes `window` + `x_pct`/`y_pct`
 (0.0–1.0); the window is focused first and the fraction is mapped to its
 current geometry, so the click survives moves and resizes. CLI:
