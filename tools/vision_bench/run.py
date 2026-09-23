@@ -14,6 +14,12 @@ among lettered options; the model replies with one letter.
 Backends:
   pi:<provider/model>   one-shot `pi -p` with the image attached (includes
                         ~1 s of pi startup; reported separately)
+  kev-vision[:<hf id>]  local VLM, letter probabilities from the LM head, image
+                        encoded once per screenshot (see kev_vision.py; run
+                        this script with ~/Work/kev/.venv/bin/python)
+  vlm+jev[:<hf id>]     the local VLM writes ONE description per screenshot;
+                        TypeSafe Jev answers every question from that text
+                        (the description goes to TypeSafe; the image stays)
 
 Usage:
   tools/vision_bench/run.py pi:anthropic/claude-haiku-4-5 pi:anthropic/claude-sonnet-4-6
@@ -37,6 +43,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 PRIVATE = Path.home() / ".local/share/hyprcu/vision-bench"
 CACHE = Path("/tmp/hyprcu-vision-bench")
+DESC_LOG = PRIVATE / "results" / "last-descriptions.json"
 LETTERS = "ABCDEFGHIJKLMNOP"
 CLAIM_HELP = {
     "supported": "supported (the screenshot shows the claim is true)",
@@ -100,23 +107,101 @@ def ask_pi(model: str, image: Path, text: str) -> tuple[str, float]:
     return (proc.stdout or proc.stderr).strip(), time.monotonic() - t
 
 
+def _row(backend: str, item: dict, got: int | None, secs: float, reply: str) -> dict:
+    gold = item["options"].index(item["answer"])
+    return {
+        "backend": backend, "image": item["image"], "tag": item["tag"],
+        "kind": item["kind"], "source": item["source"], "crop": bool(item.get("crop")),
+        "question": item["question"], "gold": item["answer"],
+        "got": item["options"][got] if got is not None else None,
+        "ok": got == gold, "secs": round(secs, 3), "reply": reply[:80],
+    }
+
+
+def run_kev_vision(backend: str, items: list[dict], max_edge: int) -> list[dict]:
+    sys.path.insert(0, str(HERE))
+    from kev_vision import MODEL_ID, KevVision
+
+    model_id = backend.partition(":")[2] or MODEL_ID
+    t = time.monotonic()
+    kv = KevVision(model_id)
+    print(f"{backend}: loaded in {time.monotonic() - t:.1f} s", file=sys.stderr)
+    groups: dict[Path, list[dict]] = defaultdict(list)
+    for item in items:
+        groups[prepared(item, max_edge)].append(item)
+    kv.many(str(next(iter(groups))), [("warm-up", 2)])  # CUDA kernels, allocator
+    rows = []
+    for img, group in groups.items():
+        res = kv.many(str(img), [(prompt(i), len(i["options"])) for i in group])
+        share = res["prefix_s"] / len(group)
+        for item, probs, sfx in zip(group, res["probs"], res["suffix_s"], strict=True):
+            got = max(range(len(probs)), key=probs.__getitem__)
+            row = _row(backend, item, got, share + sfx, f"p={probs[got]:.2f}")
+            row["p"] = round(probs[got], 3)
+            row["p_gold"] = round(probs[item["options"].index(item["answer"])], 3)
+            row["prefix_s"] = round(res["prefix_s"], 3)
+            rows.append(row)
+    return rows
+
+
+def run_vlm_jev(backend: str, items: list[dict], jobs: int, max_edge: int) -> list[dict]:
+    sys.path.insert(0, str(HERE))
+    sys.path.insert(0, str(HERE.parent.parent / "src"))
+    import os
+
+    from kev_vision import MODEL_ID, KevVision, describe
+
+    from hyprcu import pick
+
+    os.environ.setdefault("HYPRCU_CHOOSER", "jev")
+    kv = KevVision(backend.partition(":")[2] or MODEL_ID)
+    groups: dict[Path, list[dict]] = defaultdict(list)
+    for item in items:
+        groups[prepared(item, max_edge)].append(item)
+    describe(kv, str(next(iter(groups))), max_new_tokens=8)  # warm-up
+    descs = {}
+    for img in groups:
+        text, secs, ntok = describe(kv, str(img))
+        descs[img] = (text, secs, ntok)
+        print(f"  described {img.name}: {ntok} tokens in {secs:.1f} s", file=sys.stderr)
+    DESC_LOG.parent.mkdir(parents=True, exist_ok=True)
+    DESC_LOG.write_text(json.dumps({str(k): v for k, v in descs.items()}, indent=1))
+
+    def one(pair: tuple[Path, dict]) -> dict:
+        img, item = pair
+        text, dsecs, _n = descs[img]
+        opts = CLAIM_HELP if item["kind"] == "claim" else None
+        crit = {LETTERS[i]: (opts[o] if opts else o) for i, o in enumerate(item["options"])}
+        if item["kind"] == "claim":
+            instr = f"Based only on the screenshot description, is this claim: {item['question']}"
+        else:
+            instr = f"Based only on the screenshot description: {item['question']}"
+        state = f"Description of a screenshot:\n{text}"
+        ans = pick.choose(state, instr, crit)
+        got = LETTERS.index(ans["choice"]) if ans and ans["choice"] in crit else None
+        secs = dsecs / len(groups[img]) + (ans["ms"] / 1000 if ans else 0)
+        row = _row(backend, item, got, secs, f"p={ans['p']:.2f}" if ans else "jev failed")
+        row["p"] = round(ans["p"], 3) if ans else 0.0
+        return row
+
+    pairs = [(img, it) for img, g in groups.items() for it in g]
+    with cf.ThreadPoolExecutor(jobs) as pool:
+        return list(pool.map(one, pairs))
+
+
 def run(backend: str, items: list[dict], jobs: int, max_edge: int) -> list[dict]:
     kind, _, model = backend.partition(":")
+    if kind == "kev-vision":
+        return run_kev_vision(backend, items, max_edge)
+    if kind == "vlm+jev":
+        return run_vlm_jev(backend, items, jobs, max_edge)
     if kind != "pi":
-        raise SystemExit(f"unknown backend {backend!r} (want pi:<provider/model>)")
+        raise SystemExit(f"unknown backend {backend!r} (pi:<provider/model> | kev-vision)")
 
     def one(item: dict) -> dict:
         img = prepared(item, max_edge)
         reply, secs = ask_pi(model, img, prompt(item))
-        got = parse(reply, len(item["options"]))
-        gold = item["options"].index(item["answer"])
-        return {
-            "backend": backend, "image": item["image"], "tag": item["tag"],
-            "kind": item["kind"], "source": item["source"], "crop": bool(item.get("crop")),
-            "question": item["question"], "gold": item["answer"],
-            "got": item["options"][got] if got is not None else None,
-            "ok": got == gold, "secs": round(secs, 2), "reply": reply[:80],
-        }
+        return _row(backend, item, parse(reply, len(item["options"])), secs, reply)
 
     with cf.ThreadPoolExecutor(jobs) as pool:
         return list(pool.map(one, items))
@@ -129,7 +214,13 @@ def report(results: list[dict]) -> None:
     for backend, rs in by_backend.items():
         n, ok = len(rs), sum(r["ok"] for r in rs)
         med = statistics.median(r["secs"] for r in rs)
-        print(f"\n{backend}: {ok}/{n} = {ok / n:.0%}   median {med:.1f} s/q (incl. pi startup)")
+        unit = "s/q (incl. pi startup)" if backend.startswith("pi:") else "s/q (amortised)"
+        print(f"\n{backend}: {ok}/{n} = {ok / n:.0%}   median {med:.2f} {unit}")
+        if "p" in rs[0]:  # calibrated backends: does low confidence flag the errors?
+            wrong = [r["p"] for r in rs if not r["ok"]]
+            right = [r["p"] for r in rs if r["ok"]]
+            print(f"  mean p when right {statistics.mean(right) if right else 0:.2f}, "
+                  f"when wrong {statistics.mean(wrong) if wrong else 0:.2f}")
         for field in ("tag", "source"):
             groups = defaultdict(list)
             for r in rs:
