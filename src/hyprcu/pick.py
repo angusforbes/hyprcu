@@ -228,12 +228,18 @@ def _control_label(e: dict[str, Any], browser: bool) -> str:
     return label
 
 
+MAX_CONTROL_CHOICES = 200
+
+
 def choose_control(query: str, elements: list[dict[str, Any]]) -> tuple[dict[str, Any], str]:
     """Pick the control a description refers to ("submit the form") from a
     window's actionable elements (as returned by server._ui_read). Offers an
     explicit NONE; raises ResolveError when nothing fits, the chooser is
     unsure, or it is unreachable. Returns (element, note)."""
-    usable = [e for e in elements if e.get("clickable", True)]
+    usable = [e for e in elements if e.get("clickable", True) and "note" not in e]
+    # Jev rejects very long option lists (300 fails, 150 is fine); page order
+    # puts the window's own chrome and the top of the page first.
+    usable = usable[:MAX_CONTROL_CHOICES]
     if not usable:
         raise ResolveError(f"no clickable controls to match {query!r} against")
     browser = any(e.get("in_page") for e in usable)

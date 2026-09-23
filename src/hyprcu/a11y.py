@@ -534,10 +534,11 @@ def match_rule(roles: Any = None, states: Any = None) -> tuple[Any, ...]:
 
 def _find_elements_collection(
     bus: Any, app_svc: str, app_path: str, needle: str, actionable: bool, max_results: int
-) -> list[dict[str, Any]] | None:
+) -> tuple[list[dict[str, Any]], bool] | None:
     """find_elements via Collection.GetMatches + pipelined reads: the same
     filters and result shape as the walk, in ~4 round trips instead of ~5
-    per node. None when the bus or app cannot do it (caller walks)."""
+    per node. Returns (elements, truncated): truncated when max_results cut
+    off further matches. None when the bus or app cannot do it (caller walks)."""
     get_matches = getattr(bus, "get_matches", None)
     many = getattr(bus, "many", None)
     if get_matches is None or many is None:
@@ -610,8 +611,11 @@ def _find_elements_collection(
             item["document"] = in_doc[(svc, path)]
         results.append(item)
         if len(results) >= max_results:
-            break
-    return results
+            # anything left with a readable extent would have been returned
+            rest = details[3 * (k + 1) :: 3]
+            more = any(not isinstance(x, A11yError) and _parse_extents(x) for x in rest)
+            return results, more
+    return results, False
 
 
 def frame_size(bus: Any, svc: str, path: str) -> tuple[int, int] | None:
@@ -649,7 +653,7 @@ def find_elements(
     needle = name.lower()
     fast = _find_elements_collection(bus, app_svc, app_path, needle, actionable, max_results)
     if fast is not None:
-        return fast, False
+        return fast
     results: list[dict[str, Any]] = []
     stack: list[tuple[str, str]] = [(app_svc, app_path)]
     visited = 0
@@ -683,7 +687,7 @@ def find_elements(
                 "path": path,
             }
         )
-    truncated = visited >= max_nodes and bool(stack) and len(results) < max_results
+    truncated = bool(stack) and (visited >= max_nodes or len(results) >= max_results)
     return results, truncated
 
 

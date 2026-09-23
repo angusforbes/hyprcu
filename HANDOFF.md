@@ -121,11 +121,14 @@ WAYLAND-1) — that is why the headless output exists.
   gets the host keyboard, so Super pressed while its window had host focus stayed
   "held"; all combos failed in Chromium (wtype too) and Return in foot printed
   `;9;13~`. Fixed by restarting: `tools/nested-session.sh` (new, one command).
-- **OPEN BUG, fix next:** `ui` silently caps at 60 elements (`a11y.find_elements`
-  max_results); the Collection fast path always returns truncated=False and
-  `_ui_read` only mentions truncation when the list is empty. On Google, page
-  content past the browser chrome was cut. Fix: report the dropped count
-  and say so in the `ui` output (and consider a higher cap now reads are cheap).
+- **FIXED (ui truncation):** `ui` silently capped at 60 elements (the fast path
+  always said "not truncated", and the cap applied before off-window filtering).
+  Now hyprcu reads up to 600, filters, lists up to 120 and appends a note
+  ("showing N of M elements, window chrome first; pass name= to filter") when it
+  cuts; click_ui/marks still see everything. Jev fails with ~300 options (150
+  fine), so the control chooser caps at 200. Google tic-tac-toe: `ui` now shows
+  "Restart game" and the score; `click_ui "start a new game"` -> Restart game
+  (jev 88%, 355 ms).
 - **Friction to fix:** `sequence` steps use `op` (error says "unknown step op
   None" when given `tool`); `hypr` names its window arg `target` while every
   other tool uses `window`; Jev latency now 0.6–0.9 s (was ~0.3 s).

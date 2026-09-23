@@ -174,7 +174,7 @@ def test_click_ui_then_ui_observes_the_clicked_window(wired, monkeypatch):
     # the window the agent clicked, not whatever holds focus afterwards
     reads = []
 
-    def ui_read(w="", name="", actionable=True):
+    def ui_read(w="", name="", actionable=True, **_k):
         reads.append(w)
         return [e for e in ELEMENTS if name.lower() in e["name"].lower()]
 

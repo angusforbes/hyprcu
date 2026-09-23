@@ -200,3 +200,17 @@ def test_choose_control_none_and_low_confidence_refuse(monkeypatch):
         monkeypatch.setattr(pick.urllib.request, "urlopen", _fake_urlopen(ans, []))
         with pytest.raises(pick.ResolveError, match=msg):
             pick.choose_control("log out", CONTROLS)
+
+
+def test_choose_control_stays_under_jevs_option_limit(monkeypatch):
+    seen = {}
+
+    def fake_choose(state, question, options, none_label=""):
+        seen["n"] = len(options)
+        return {"choice": "c0", "p": 0.99, "ms": 5}
+
+    monkeypatch.setattr(pick, "choose", fake_choose)
+    els = [{"role": "push button", "name": f"B{i}", "clickable": True} for i in range(450)]
+    els.append({"note": "showing 450 of 900 elements"})
+    e, _ = pick.choose_control("the first one", els)
+    assert seen["n"] == pick.MAX_CONTROL_CHOICES and e["name"] == "B0"

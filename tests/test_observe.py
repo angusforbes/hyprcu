@@ -46,7 +46,7 @@ def test_unknown_then_raises():
 
 def test_then_ui_appends_elements(monkeypatch):
     elements = [{"role": "entry", "name": "Email", "x": 5, "y": 6, "value": "hi@x"}]
-    monkeypatch.setattr(srv, "_ui_read", lambda window="": elements)
+    monkeypatch.setattr(srv, "_ui_read", lambda window="", **_k: elements)
     out = srv._acted("typed", "ui")
     assert out[0].text == "typed"
     assert json.loads(out[1].text) == elements
@@ -57,21 +57,21 @@ def test_then_ui_reads_the_callers_window(monkeypatch):
     # the observation shows THAT window, not whatever holds focus now
     seen = {}
     monkeypatch.setattr(
-        srv, "_ui_read", lambda window="": seen.update(window=window) or []
+        srv, "_ui_read", lambda window="", **_k: seen.update(window=window) or []
     )
     srv._acted("clicked", "ui", window="0xw")
     assert seen["window"] == "0xw"
 
 
 def test_then_ui_degrades_without_a_tree(monkeypatch):
-    monkeypatch.setattr(srv, "_ui_read", lambda window="": "kitty exposes no tree")
+    monkeypatch.setattr(srv, "_ui_read", lambda window="", **_k: "kitty exposes no tree")
     out = srv._acted("typed", "ui")
     assert out[1].text == "kitty exposes no tree"
 
 
 def test_then_ui_never_masks_the_action(monkeypatch):
     # the action succeeded; a failing observation must not turn it into an error
-    def boom(window=""):
+    def boom(window="", **_k):
         raise ValueError("no active window")
 
     monkeypatch.setattr(srv, "_ui_read", boom)
@@ -216,7 +216,7 @@ def test_then_ui_falls_back_when_the_clicked_window_is_gone(monkeypatch):
     # were asked for; show the parent instead of a not-found error
     parent = [{"role": "push button", "name": "New", "x": 1, "y": 2}]
 
-    def ui_read(window=""):
+    def ui_read(window="", **_k):
         if window:
             raise ValueError(f"window {window!r} not found, call desktop()")
         return parent
@@ -228,7 +228,7 @@ def test_then_ui_falls_back_when_the_clicked_window_is_gone(monkeypatch):
 
 
 def test_then_ui_reports_failure_when_nothing_can_be_read(monkeypatch):
-    def boom(window=""):
+    def boom(window="", **_k):
         raise ValueError("no active window")
 
     monkeypatch.setattr(srv, "_ui_read", boom)
@@ -326,7 +326,7 @@ def test_acted_ui_fallback_only_when_a_window_was_named(monkeypatch):
     # never silently retried against a different window
     calls = []
 
-    def ui_read(window=""):
+    def ui_read(window="", **_k):
         calls.append(window)
         raise ValueError("no active window")
 
@@ -383,3 +383,57 @@ def test_pointer_single_note_under_lock(monkeypatch):
     out = srv.pointer("click", x=10, y=10, allow_auth=True)
     assert out.count("NOTE") == 1  # not two
     assert "session is locked" in out and "rofi" not in out
+
+
+def _fake_read(monkeypatch, n, truncated=False):
+    els = [
+        {"role": "push button", "name": f"B{i}", "extent": (i, 0, 4, 4), "clickable": True}
+        for i in range(n)
+    ]
+    client = {
+        "address": "0xa",
+        "title": "t",
+        "class": "app",
+        "pid": 1,
+        "at": [0, 0],
+        "size": [1000, 1000],
+    }
+    monkeypatch.setattr(srv, "_resolve_window", lambda w: client)
+    monkeypatch.setattr(srv.a11y, "connect", lambda: object())
+    monkeypatch.setattr(srv.a11y, "app_for_pid", lambda *a: ("app", "/"))
+    monkeypatch.setattr(srv.a11y, "window_frame", lambda *a: ("app", "/"))
+    monkeypatch.setattr(srv.a11y, "find_elements", lambda *a, **k: (els, truncated))
+    monkeypatch.setattr(srv, "_a11y_scales", lambda *a: {None: 1.0})
+
+
+def test_ui_read_caps_the_listing_with_a_visible_note(monkeypatch):
+    _fake_read(monkeypatch, 7)
+    out = srv._ui_read("0xa", limit=5)
+    assert [e["name"] for e in out[:5]] == ["B0", "B1", "B2", "B3", "B4"]
+    assert "showing 5 of 7 elements" in out[5]["note"] and "name=" in out[5]["note"]
+
+
+def test_ui_read_without_limit_returns_everything(monkeypatch):
+    # click_ui and marks must see every control, not the listing cap
+    _fake_read(monkeypatch, 7)
+    out = srv._ui_read("0xa")
+    assert len(out) == 7 and not any("note" in e for e in out)
+
+
+def test_ui_read_says_when_the_tree_read_stopped_early(monkeypatch):
+    _fake_read(monkeypatch, 3, truncated=True)
+    out = srv._ui_read("0xa", limit=5)
+    assert len(out) == 4 and "more exist" in out[3]["note"]
+
+
+def test_ui_note_renders_as_a_plain_line():
+    from hyprcu import verbs
+
+    text = verbs.render(
+        "ui",
+        [
+            {"role": "push button", "name": "OK", "x": 1, "y": 2, "clickable": True},
+            {"note": "showing 1 of 9 elements"},
+        ],
+    )
+    assert text.splitlines() == ['[0] push button "OK" @1,2', "(showing 1 of 9 elements)"]

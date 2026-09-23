@@ -358,3 +358,54 @@ def test_state_decoding_two_words():
     bus = FakeBus({("a", "/n"): {"role": 43, "name": "b", "extent": (0, 0, 1, 1),
                                  "states": {30, 32}, "children": []}})
     assert a11y._states(bus, "a", "/n") == {30, 32}
+
+
+class _CollectionBus:
+    """Just enough of the jeepney bus for the Collection fast path: every
+    candidate is a push button (role 43) with a name and a real extent."""
+
+    def __init__(self, n, bad_extent=()):
+        self.cands = [("app", f"/b{i}") for i in range(n)]
+        self.bad = set(bad_extent)
+
+    def get_matches(self, svc, path, rule):
+        if rule[4] == a11y._bitset([a11y.DOCUMENT_WEB_ROLE], 4):
+            return []  # no web document: a native app
+        return list(self.cands)
+
+    def many(self, reqs):
+        out = []
+        for req in reqs:
+            kind, _svc, path, _iface, member = req[:5]
+            i = int(path[2:])
+            if member == "Name":
+                out.append(f"Button {i}")
+            elif member == "GetRole":
+                out.append((43,))
+            elif member == "GetExtents":
+                out.append(((0, 0, 0, 0),) if i in self.bad else ((10 * i, 5, 20, 10),))
+            elif member == "GetState":
+                out.append(([0, 0],))
+            elif member == "GetRoleName":
+                out.append(("push button",))
+        return out
+
+
+def test_fast_path_signals_truncation_at_max_results():
+    els, truncated = a11y.find_elements(_CollectionBus(10), "app", "/", max_results=4)
+    assert [e["name"] for e in els] == ["Button 0", "Button 1", "Button 2", "Button 3"]
+    assert truncated is True
+
+
+def test_fast_path_not_truncated_when_everything_fits():
+    els, truncated = a11y.find_elements(_CollectionBus(4), "app", "/", max_results=4)
+    assert len(els) == 4 and truncated is False
+
+
+def test_fast_path_ignores_unrenderable_leftovers():
+    # the only elements past the cap have no extent: they would never be
+    # listed, so nothing was really cut off
+    els, truncated = a11y.find_elements(
+        _CollectionBus(6, bad_extent={4, 5}), "app", "/", max_results=4
+    )
+    assert len(els) == 4 and truncated is False

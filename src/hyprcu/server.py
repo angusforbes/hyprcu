@@ -413,7 +413,16 @@ def _a11y_scales(
     return scales
 
 
-def _ui_read(window: str = "", name: str = "", actionable: bool = True) -> list[Any] | str:
+# How many elements `ui` lists before summarising the rest in a note, and how
+# many hyprcu reads at most. Reads are cheap since the Collection fast path;
+# the listing cap only keeps an agent's context small, and is never silent.
+UI_LIST_LIMIT = 120
+UI_READ_MAX = 600
+
+
+def _ui_read(
+    window: str = "", name: str = "", actionable: bool = True, limit: int | None = None
+) -> list[Any] | str:
     """Shared body of the `ui` tool: a window's accessible elements with
     global click points and current values, or a fall-back-to-vision
     message. Reused by `then='ui'` fusion and click-by-name resolution."""
@@ -427,7 +436,7 @@ def _ui_read(window: str = "", name: str = "", actionable: bool = True) -> list[
             return f"{cls} exposes no accessibility tree; use screenshot + zoom instead"
         frame = a11y.window_frame(bus, app[0], app[1], title, tuple(client["size"]))
         elements, truncated = a11y.find_elements(
-            bus, frame[0], frame[1], name=name, actionable=actionable
+            bus, frame[0], frame[1], name=name, actionable=actionable, max_results=UI_READ_MAX
         )
         try:
             scales = _a11y_scales(bus, frame, client, elements)
@@ -464,6 +473,18 @@ def _ui_read(window: str = "", name: str = "", actionable: bool = True) -> list[
         what = f"matching {name!r}" if name else "actionable"
         tail = " (stopped after a large tree; try a name filter)" if truncated else ""
         return f"no {what} elements in {cls}{tail}"
+    note = ""
+    if limit is not None and len(out) > limit:
+        more = "+" if truncated else ""
+        note = (
+            f"showing {limit} of {len(out)}{more} elements, window chrome first; "
+            "pass name= to filter, e.g. name='submit'"
+        )
+        out = out[:limit]
+    elif truncated:
+        note = f"stopped after {len(out)} elements; more exist; pass name= to filter"
+    if note:
+        out.append({"note": note})
     return out
 
 
@@ -487,7 +508,7 @@ def ui(window: str = "", name: str = "", actionable: bool = True) -> list[Any] |
     Electron/Chrome without --force-renderer-accessibility, expose little
     or nothing); when it does not, fall back to screenshot + zoom."""
     safety.touch("ui")
-    view = _ui_read(window, name, actionable)
+    view = _ui_read(window, name, actionable, limit=UI_LIST_LIMIT)
     trust.remember_seat()  # a fresh read re-arms the strict seat guard
     return view
 
@@ -651,7 +672,7 @@ def _acted(msg: str, then: str, window: str = "") -> list[Any] | str:
         return [head, *_deliver_capture(stable=True)]
     if then == "ui":
         try:
-            view = _ui_read(window)
+            view = _ui_read(window, limit=UI_LIST_LIMIT)
         except Exception as exc:  # the observation must never mask the action's success
             view = f"ui read failed: {exc}"
             if window:
@@ -660,7 +681,7 @@ def _acted(msg: str, then: str, window: str = "") -> list[Any] | str:
                 # re-read. Fall back to whatever holds focus now (usually
                 # the parent), which is what the agent actually wants to see.
                 with contextlib.suppress(Exception):
-                    view = _ui_read()
+                    view = _ui_read(limit=UI_LIST_LIMIT)
         payload = view if isinstance(view, str) else json.dumps(view)
         return [head, _text(payload)]
     raise ValueError(f"unknown then {then!r}: {'|'.join(_OBSERVE_MODES)}")

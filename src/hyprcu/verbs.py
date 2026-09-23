@@ -622,6 +622,9 @@ def _render_items(tool: str, items: list[dict[str, Any]]) -> str:
 def _render_ui(items: list[dict[str, Any]], key: str = "") -> str:
     lines = []
     for i, e in enumerate(items):
+        if "note" in e and "role" not in e:
+            lines.append(f"({_safe(e['note'])})")
+            continue
         n = e.get(key, i) if key else i
         role, name = _safe(e.get("role", "")), _q(e.get("name", ""))
         line = f"[{n}] {role} {name} @{e.get('x')},{e.get('y')}"
