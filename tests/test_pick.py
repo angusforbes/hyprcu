@@ -70,6 +70,7 @@ def test_ambiguous_substring_flat_split_is_actionable(monkeypatch):
 
 
 def test_natural_language_above_gate(monkeypatch):
+    monkeypatch.setenv("HYPRCU_CHOOSER", "kev")
     monkeypatch.setattr(
         pick, "_kev",
         lambda q, cs: (next(x for x in cs if x["address"] == "0xa1"), 0.97, 180),
@@ -85,6 +86,7 @@ def test_natural_language_below_gate_is_actionable(monkeypatch):
 
 
 def test_kev_unreachable_is_actionable(monkeypatch):
+    monkeypatch.setenv("HYPRCU_CHOOSER", "kev")
     monkeypatch.setattr(pick, "_kev", lambda q, cs: (None, 0.0, 0))
     with pytest.raises(pick.ResolveError, match="kev chooser is unreachable"):
         pick.resolve("the file browser", C)
@@ -137,8 +139,15 @@ def test_jev_none_is_an_actionable_abstention(monkeypatch):
 def test_jev_without_key_is_unreachable_not_a_crash(monkeypatch):
     monkeypatch.setenv("HYPRCU_CHOOSER", "jev")
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
-    with pytest.raises(pick.ResolveError, match="jev chooser is unreachable"):
+    with pytest.raises(pick.ResolveError, match="TYPESAFE_API_KEY is not set"):
         pick.resolve("the file browser", C)
+
+
+def test_jev_is_the_default_chooser(monkeypatch):
+    monkeypatch.delenv("HYPRCU_CHOOSER", raising=False)
+    assert pick.chooser() == "jev"
+    monkeypatch.setenv("HYPRCU_CHOOSER", "kev")
+    assert pick.chooser() == "kev"
 
 
 def test_kev_backend_has_no_none_option(monkeypatch):

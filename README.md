@@ -6,21 +6,38 @@ server and a CLI over the same primitives. A fork of
 with the trust, journal, safety-beacon and CLI layers removed, keeping the
 Wayland/Hyprland primitives intact. App knowledge and tooling live in `docs/` and `tools/`.
 
-## What's kept (byte-identical to upstream)
+## Requires a TypeSafe API key (sends names to TypeSafe)
+
+By default hyprcu resolves descriptions (`window="the file browser"`,
+`click_ui "submit the form"`) with **TypeSafe's Jev** model, a cloud API.
+Each such call **sends the candidate names to TypeSafe**: the titles and
+classes of your open windows, or the names and values of the window's
+accessible controls, plus your description. Addresses and exact names/
+substrings resolve locally and send nothing.
+
+- Get a key from [TypeSafe](https://typesafe.ai) and export `TYPESAFE_API_KEY`
+  in the environment hyprcu runs in. It is read from the environment only and
+  never written to disk.
+- Without a key, descriptions fail with an explicit message; everything else
+  works.
+- To keep everything on the machine, set `HYPRCU_CHOOSER=kev` and run the local
+  kev model instead (slower and less accurate; see below).
+
+## What's kept from upstream
 
 | module | what |
 |---|---|
-| `wire.py` | raw `zwlr_virtual_pointer_v1` client — motion+button+axis from one pointer, so drag works |
-| `a11y.py` | AT-SPI tree via `busctl` |
+| `wire.py` | raw `zwlr_virtual_pointer_v1` client — motion+button+axis from one pointer, so drag works. hyprcu: the virtual keyboard puts every key on its real US keycode (wtype-style numbering made Chromium read '/' as Escape and '-' as Backspace) |
+| `a11y.py` | AT-SPI tree. hyprcu: in-process D-Bus (jeepney) + Collection fast path instead of one `busctl` per call (Chromium `ui`: 5.2 s → 0.22 s); `busctl` remains the fallback |
 | `events.py` | Hyprland socket2 listener → `wait_for`, event-driven `launch`/`close_window` |
 | `hyprctl.py` | IPC layer; handles both hyprlang and Lua-dispatch Hyprland |
-| `input.py`, `screenshot.py`, `clipboard.py`, `session.py` | as upstream |
-| `server.py` | the MCP server, unmodified |
+| `input.py`, `screenshot.py`, `clipboard.py`, `session.py` | as upstream, except typing/combos go through our virtual keyboard (wtype only as a fallback) |
+| `server.py` | the MCP server; hyprcu adds window description resolution, `click_ui` by description, and per-toolkit accessibility coordinate mapping (Chromium UI vs web content) |
 
 ## What's replaced with no-op stubs
 
 `trust.py`, `safety.py`, `skill.py` — same public names, every guard passes,
-no log call does anything. `server.py` didn't need a single edit. `journal.py`
+no log call does anything. `journal.py`
 is NOT a stub: it is the training log (see below).
 
 ## What's removed
@@ -86,11 +103,11 @@ Results carry `[kev: 99% in 229ms]` so you can see when it was used.
     hyprcu hypr focus_window "the file browser"
     hyprcu keyboard type "hello" --window "the shell on workspace 2"
 
-**Choosers: Jev or kev.** `HYPRCU_CHOOSER=jev` sends these choices to
-TypeSafe's Jev (`TYPESAFE_API_KEY` from the environment) with an explicit
-"none of these" option; the default `kev` is the local model with the
-probability gate. Jev is opt-in because window titles and control names go to
-TypeSafe. `tools/choice_bench.py` (29 synthetic queries, nothing from the live
+**Choosers: Jev (default) or kev.** By default these choices go to TypeSafe's
+Jev (`TYPESAFE_API_KEY` from the environment) with an explicit "none of these"
+option; this sends window titles and control names to TypeSafe (see
+[Requires a TypeSafe API key](#requires-a-typesafe-api-key-sends-names-to-typesafe)).
+`HYPRCU_CHOOSER=kev` uses the local model with a probability gate instead. `tools/choice_bench.py` (29 synthetic queries, nothing from the live
 desktop): Jev 28/29 at ~0.6 s; kev-4b 20-25/29 at 1.7-2.8 s on a laptop GPU
 (kev slows as the option list grows).
 
@@ -113,7 +130,7 @@ the window list at the time, result, and — when kev chose — query and
 probability. Rows are unlabelled; a `correct` field is meant to be added
 later before anything is trained on them.
 
-Requires a Jev-compatible server at `KEV_URL` (default kev-4b on :8009).
+With `HYPRCU_CHOOSER=kev`, requires a Jev-compatible server at `KEV_URL` (default kev-4b on :8009).
 The canonical launcher is the systemd user unit `kev.service`
 (`systemctl --user start/stop/status kev`; runs on CUDA in NF4, offline-safe,
 auto-starts at login) — a manual fallback is `tools/kev-serve.sh`. Without

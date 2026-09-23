@@ -12,8 +12,9 @@ The chokepoint is `resolve()`. It returns (client, note) where note is "" or
 click_ui can take "submit the form" as well as "Send message".
 
 Env:
-  HYPRCU_CHOOSER  kev (default) | jev. Jev sends window titles / control
-                  names to TypeSafe's API: opt-in. Measured (tools/choice_bench.py,
+  HYPRCU_CHOOSER  jev (default) | kev. Jev sends window titles and control
+                  names to TypeSafe's API and needs TYPESAFE_API_KEY; kev is
+                  the local, offline alternative. Measured (tools/choice_bench.py,
                   29 synthetic queries): Jev with an explicit NONE option 28/29 at
                   ~0.6 s; kev-4b 25/29 at 1.7-2.8 s (grows with option count).
   TYPESAFE_API_KEY  required for jev (read from the environment only)
@@ -45,7 +46,17 @@ ABSTAINED: dict[str, Any] = {"address": NONE}
 
 def chooser() -> str:
     """The configured backend, read per call so tests/env changes apply."""
-    return "jev" if os.environ.get("HYPRCU_CHOOSER", "kev").strip().lower() == "jev" else "kev"
+    return "kev" if os.environ.get("HYPRCU_CHOOSER", "jev").strip().lower() == "kev" else "jev"
+
+
+def _unreachable(what: str) -> str:
+    """Why the chooser could not answer, and what to do about it."""
+    if chooser() == "jev" and not os.environ.get("TYPESAFE_API_KEY"):
+        return (
+            f"{what} and the jev chooser is unreachable: TYPESAFE_API_KEY is not set "
+            "(get a key from TypeSafe, or set HYPRCU_CHOOSER=kev for the local model)"
+        )
+    return f"{what} and the {chooser()} chooser is unreachable at {backend_url()}"
 
 
 def backend_url() -> str:
@@ -191,8 +202,9 @@ def resolve(window: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any],
     c, p, ms = _kev(q, visible or clients)
     who = chooser()
     if c is None:
-        raise ResolveError(f"no window matches {q!r} and the {who} chooser is unreachable "
-                           f"at {backend_url()}; pass an address from desktop()")
+        raise ResolveError(
+            _unreachable(f"no window matches {q!r}") + "; pass an address from desktop()"
+        )
     if c is ABSTAINED:
         raise ResolveError(
             f"no open window matches {q!r} ({who}: none of them, {p:.0%}). "
@@ -234,8 +246,7 @@ def choose_control(query: str, elements: list[dict[str, Any]]) -> tuple[dict[str
     who = chooser()
     if ans is None:
         raise ResolveError(
-            f"no control is named {query!r} and the {who} chooser is unreachable at "
-            f"{backend_url()}; call ui() and click by exact name"
+            _unreachable(f"no control is named {query!r}") + "; call ui() and click by exact name"
         )
     if ans["choice"] == NONE:
         raise ResolveError(
