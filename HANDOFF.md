@@ -172,6 +172,12 @@ WAYLAND-1) — that is why the headless output exists.
   real apps**, not tic-tac-toe alone: Chromium pages/forms, foot output, Slack,
   Obsidian, dialogs, Omarchy bar/launcher, canvas apps. Text first: a11y +
   titles via Jev; images only for what text cannot answer.
+  **Preferred variant: local VLM + Jev** — the VLM (Qwen2.5-VL-3B / Gemma 3 4B,
+  NF4 ~3 GB) *describes* the crop as short JSON (text, controls, dialogs, state;
+  prompted with the question), Jev *decides* over that + the a11y list with
+  NONE / not-enough-info, escalating to Haiku/Sonnet, then the main agent. Image
+  stays local; the description goes to TypeSafe (same rule as names). Estimated
+  ~2–3 s (unmeasured). Benchmark VLM+Jev vs Haiku-alone on the real-app set.
 
 ## Where things are
 
