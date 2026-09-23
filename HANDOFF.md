@@ -148,7 +148,7 @@ WAYLAND-1) — that is why the headless output exists.
   `tools/nested-session.sh` copies them.
 - **#3 vision benchmark (2026-09-23): `tools/vision_bench/run.py`.** 46
   questions an agent asks after acting (read / locate / state / selected /
-  cannot-tell), 31 public on nested-session screenshots (repo) + 15 private
+  cannot-tell), 32 public on nested-session screenshots (repo) + 14 private
   on Angus's real desktop (Slack, herdr terminal, Omarchy bar) in
   ~/.local/share/hyprcu/vision-bench/ (never committed). One-letter answers
   via `pi -p`. Results: **Sonnet 4.6 45/46 (98%), all public right; Haiku
