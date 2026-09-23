@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -648,7 +649,104 @@ def marks(window: str = "", name: str = "") -> list[Any] | str:
     return [*_package(marked, meta), legend_text]
 
 
-_OBSERVE_MODES = ("none", "desktop", "screenshot", "ui")
+_OBSERVE_MODES = ("none", "desktop", "screenshot", "ui", "changes")
+
+# then='changes': the before-frame, taken by _prime() just before an action
+# and consumed by _acted() after it. Per thread: parallel tool calls run on
+# worker threads and must not diff against each other's frames.
+_baseline = threading.local()
+# Crops smaller than this (logical px) get padded out so the change keeps
+# some surrounding context; above this share of the screen, send it whole.
+_CHANGE_PAD = 16
+_CHANGE_MIN = 64
+_CHANGE_WHOLE = 0.5
+# Some compositors (a nested or headless Hyprland) draw the mouse pointer into
+# captured frames. The pointer's box (its hotspot is the top-left corner) at
+# the old and new positions is blanked in both frames before comparing, so
+# moving it is not reported as a change; anything bigger still shows.
+_POINTER_BOX = (-4, -4, 36, 40)
+
+
+def _prime(then: str) -> None:
+    """Record the focused monitor's raw frame before an action, for
+    then='changes'. Never raises: without a baseline, _acted falls back to a
+    whole screenshot."""
+    if then != "changes":
+        return  # leave a sequence's baseline alone while its steps run
+    _baseline.frame = None
+    try:
+        mons = hyprctl.query("monitors")
+        m = next((m for m in mons if m.get("focused")), mons[0])
+        _baseline.frame = (m, shot.raw_frame(m["name"]))
+        _baseline.at = time.monotonic()
+        _baseline.cursor = hyprctl.cursor_pos()
+    except Exception:
+        _baseline.frame = None
+
+
+def _changes(head: Any) -> list[Any]:
+    """What the action changed on the monitor it happened on: nothing (text
+    only, no image), a crop per changed area, or the whole screen when most
+    of it changed (a page load, a workspace switch)."""
+    base = getattr(_baseline, "frame", None)
+    _baseline.frame = None
+    if base is not None and time.monotonic() - getattr(_baseline, "at", 0) > 120:
+        base = None  # left over from an action that failed before observing
+    if base is None:
+        note = _text("changes: no before-frame was recorded; here is the whole screen")
+        return [head, note, *_deliver_capture(stable=True)]
+    m, (bw, bh, before) = base
+    t0 = time.monotonic()
+    w, h, after, settled = shot.settle(m["name"])
+    ms = (time.monotonic() - t0) * 1000
+    waited = f"{'settled' if settled else 'still changing'} after {ms:.0f} ms"
+    mx, my, mw, mh = hyprctl.logical_rect(m)
+    sx, sy = w / mw, h / mh  # frame pixels per logical px
+    if (w, h) == (bw, bh):
+        cursors = [getattr(_baseline, "cursor", None)]
+        with contextlib.suppress(Exception):
+            cursors.append(hyprctl.cursor_pos())
+        dx, dy, pw, ph = _POINTER_BOX
+        mask = [
+            (int((cx + dx - mx) * sx), int((cy + dy - my) * sy), int(pw * sx), int(ph * sy))
+            for cx, cy in (c for c in cursors if c)
+        ]
+        before = shot.mask_rects(w, h, before, after, mask)
+        boxes = shot.diff_boxes(w, h, before, after)
+    else:
+        boxes = [(0, 0, w, h)]  # the output changed size
+    if not boxes:
+        return [head, _text(f"changes: nothing changed on {m['name']} ({waited})")]
+    logical = [
+        (mx + x / sx, my + y / sy, mx + (x + bw_) / sx, my + (y + bh_) / sy)
+        for x, y, bw_, bh_ in boxes
+    ]
+    rects = []
+    for gx0, gy0, gx1, gy1 in logical:
+        # pad, then grow tiny changes to a readable minimum, clamped on screen
+        gx0, gy0 = gx0 - _CHANGE_PAD, gy0 - _CHANGE_PAD
+        gx1, gy1 = gx1 + _CHANGE_PAD, gy1 + _CHANGE_PAD
+        cw, ch = gx1 - gx0, gy1 - gy0
+        if cw < _CHANGE_MIN:
+            gx0, gx1 = gx0 - (_CHANGE_MIN - cw) / 2, gx1 + (_CHANGE_MIN - cw) / 2
+        if ch < _CHANGE_MIN:
+            gy0, gy1 = gy0 - (_CHANGE_MIN - ch) / 2, gy1 + (_CHANGE_MIN - ch) / 2
+        gx0, gy0 = max(mx, int(gx0)), max(my, int(gy0))
+        gx1, gy1 = min(mx + mw, int(gx1 + 0.999)), min(my + mh, int(gy1 + 0.999))
+        rects.append((gx0, gy0, gx1 - gx0, gy1 - gy0))
+    share = sum(bwid * bhgt for _x, _y, bwid, bhgt in boxes) / float(w * h)
+    listed = ", ".join(f"{x},{y} {rw}x{rh}" for x, y, rw, rh in rects)
+    if share >= _CHANGE_WHOLE:
+        summary = f"changes: {share:.0%} of {m['name']} changed ({waited}); whole screen follows"
+        return [head, _text(summary), *_deliver_capture()]
+    summary = (
+        f"changes: {len(rects)} area(s) changed on {m['name']} ({share:.1%} of it, {waited}): "
+        f"{listed}; one crop per area follows"
+    )
+    out = [head, _text(summary)]
+    for x, y, rw, rh in rects:
+        out.extend(_deliver_capture(region=f"{x},{y},{rw}x{rh}"))
+    return out
 
 
 def _acted(msg: str, then: str, window: str = "") -> list[Any] | str:
@@ -662,10 +760,16 @@ def _acted(msg: str, then: str, window: str = "") -> list[Any] | str:
     else the focused one) with their CURRENT values (a few hundred exact
     tokens instead of an image: best after typing or toggling in an app
     that exposes a tree, degrades to a note when it does not);
+    `'changes'` compares the focused monitor before and after the action
+    (waiting for it to settle) and appends only what changed: a line saying
+    nothing did, a crop per changed area, or the whole screen when most of
+    it changed. Usually the cheapest way to see an effect.
     `'none'` appends nothing."""
     if then == "none":
         return msg
     head = _text(msg)
+    if then == "changes":
+        return _changes(head)
     if then == "desktop":
         return [head, _text(json.dumps(hyprctl.snapshot()))]
     if then == "screenshot":
@@ -752,8 +856,10 @@ def pointer(
     is its centre, (0.1,0.05) near its top-left. The window is focused first.
     This is the robust form — it survives the window moving or resizing.
 
-    `then` appends the result to this call so you skip a round-trip: 'desktop'
-    a fresh snapshot, 'screenshot' a stable capture, 'ui' the focused window's
+    `then` appends the result to this call so you skip a round-trip:
+    'changes' only what changed on screen (no image when nothing did, else a
+    crop per changed area; usually the cheapest visual check), 'desktop' a
+    fresh snapshot, 'screenshot' a stable capture, 'ui' the focused window's
     elements with current values, 'none' (default) nothing."""
     safety.touch(f"pointer:{action}")
     note = ""
@@ -793,6 +899,8 @@ def pointer(
     # hinput calls below, because a dry run stops before those and a
     # rehearsal that accepts a call the real run rejects is worse than no
     # rehearsal. Same functions, so the errors are identical either way.
+    if not dry:
+        _prime(then)
     if action == "move":
         # a move only repositions the cursor; the input-delivering actions
         # below are the ones the confinement and auth guards gate
@@ -852,7 +960,7 @@ def keyboard(
     holds focus. This drives shortcuts the focused application handles
     (ctrl+t, ctrl+l). It does NOT trigger Hyprland's own keybinds
     (super+...): those go through `use_bind`, and workspace/window actions
-    through `hypr`. `then` ('desktop'|'screenshot'|'ui'|'none') appends the
+    through `hypr`. `then` ('changes'|'desktop'|'screenshot'|'ui'|'none') appends the
     result to this call."""
     safety.touch(f"keyboard:{action}")
     trust.guard_seat()
@@ -903,6 +1011,7 @@ def keyboard(
     if journal.dry_run():
         plan = f"type {len(text)} characters" if action == "type" else f"press {keys}"
         return _acted(f"{_DRY} {plan}{into}{note}", then)
+    _prime(then)
     if window:
         hyprctl.dispatch("focuswindow", addr_str)
         time.sleep(0.05)  # let keyboard focus settle before typing into it
@@ -938,7 +1047,7 @@ def click_ui(
     the candidates instead of guessing: disambiguate with `index` (0-based
     into that list) or a more specific name. Falls back with a note when
     the app exposes no tree (use screenshot + zoom + pointer then).
-    `then` ('desktop'|'screenshot'|'ui'|'none') appends the result;
+    `then` ('changes'|'desktop'|'screenshot'|'ui'|'none') appends the result;
     'ui' shows the click's effect on the controls in the same call."""
     safety.touch("click_ui")
     trust.guard_seat()
@@ -1014,6 +1123,7 @@ def click_ui(
             then,
             window=client["address"],
         )
+    _prime(then)
     hyprctl.dispatch("focuswindow", f"address:{client['address']}")
     time.sleep(0.05)  # focus (and a possible workspace switch) settles first
     hinput.click(x, y, button=button, double=double)
@@ -1126,7 +1236,7 @@ def hypr(action: str, target: str = "", workspace: str = "", then: str = "none")
     silent) | 'close_window' (target) | 'fullscreen' (target?) |
     'toggle_floating' (target?) | 'dpms_on' / 'dpms_off' (display power;
     screenshots cannot capture a dark display — desktop() reports it and
-    screenshot errors with a pointer here). `then` ('desktop'|'screenshot'|'ui'|'none')
+    screenshot errors with a pointer here). `then` ('changes'|'desktop'|'screenshot'|'ui'|'none')
     appends the result to this call."""
     safety.touch(f"hypr:{action}")
     # every argument is checked before any guard runs and before anything
@@ -1168,6 +1278,7 @@ def hypr(action: str, target: str = "", workspace: str = "", then: str = "none")
             ),
             then,
         )
+    _prime(then)
     if action == "workspace":
         hyprctl.dispatch("workspace", workspace)
         msg = f"on workspace {workspace}"
@@ -1342,7 +1453,7 @@ def use_bind(combo: str, then: str = "none") -> list[Any] | str:
     `binds` tool), e.g. 'SUPER+F'. This executes the bound action directly
     (the only reliable way: synthetic keypresses do not trigger compositor
     binds). Use it to drive the owner's configured workflows: launchers,
-    layout shortcuts, scratchpads. `then` ('desktop'|'screenshot'|'ui'|'none')
+    layout shortcuts, scratchpads. `then` ('changes'|'desktop'|'screenshot'|'ui'|'none')
     appends the result to this call (handy after a launcher bind)."""
     safety.touch("use_bind")
     trust.guard_seat()
@@ -1365,6 +1476,7 @@ def use_bind(combo: str, then: str = "none") -> list[Any] | str:
     action, arg = bind["action"], bind.get("arg", "")
     if journal.dry_run():
         return _acted(f"{_DRY} run {bind['combo']}: {action} {arg}".rstrip(), then)
+    _prime(then)
     hyprctl.dispatch(action, *([arg] if arg else []))
     trust.remember_seat()  # the bind may have moved focus/workspace on our behalf
     return _acted(f"ran {bind['combo']}: {action} {arg}".rstrip(), then)
@@ -1641,8 +1753,8 @@ def sequence(
     between steps if a window opens/closes/moves or the workspace switches
     unexpectedly — useful when a dialog might appear, but it also fires on
     changes you intended (Ctrl+T opening a tab), so it is off by default.
-    `then` observes the final state ('desktop' default, 'screenshot', 'ui',
-    'none')."""
+    `then` observes the final state ('desktop' default, 'changes' for only
+    what the whole sequence changed on screen, 'screenshot', 'ui', 'none')."""
     safety.touch("sequence")
     if not steps:
         raise ValueError("sequence needs at least one step")
@@ -1657,6 +1769,8 @@ def sequence(
         with contextlib.suppress(events.EventError):
             stream = events.EventStream()
 
+    if not journal.dry_run():
+        _prime(then)
     results: list[str] = []
     stopped: str | None = None
     prev_expected: set[str] = set()

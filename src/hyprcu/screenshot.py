@@ -344,3 +344,120 @@ def capture_stable(
         data, meta = nxt, nmeta
     meta["stable"] = False
     return data, meta
+
+
+# ---------------------------------------------------------------------------
+# hyprcu: change detection ("what did my action change?")
+#
+# An action's effect is usually small: a button highlights, a dialog opens, a
+# cell fills in. Sending the whole screen for the model to re-read is the
+# expensive part of computer use, so hyprcu compares raw frames from before
+# and after the action and returns only the changed areas. Raw PPM from grim
+# is ~15 ms for a 1600x1000 output and compares with bytes equality (C
+# speed), so no image library is needed.
+
+
+def raw_frame(output: str) -> tuple[int, int, bytes]:
+    """(width, height, rgb bytes) of one output at its native scale."""
+    data = _grim(["-t", "ppm", "-o", output])
+    # P6\n<w> <h>\n<max>\n<pixels>, whitespace-separated header
+    parts = data.split(maxsplit=4)
+    if len(parts) < 5 or parts[0] != b"P6":
+        raise ScreenshotError("grim did not return a PPM frame")
+    w, h = int(parts[1]), int(parts[2])
+    pixels = data[len(data) - w * h * 3 :]
+    return w, h, pixels
+
+
+def settle(
+    output: str, interval: float = 0.1, quiet: float = 0.3, timeout: float = 2.0
+) -> tuple[int, int, bytes, bool]:
+    """Raw frames until the output has not changed for `quiet` seconds (the
+    effect has finished, including an app that pauses before responding),
+    or the timeout passes (a blinking cursor, a video)."""
+    w, h, cur = raw_frame(output)
+    still_since = time.monotonic()
+    deadline = still_since + timeout
+    while time.monotonic() < deadline:
+        time.sleep(interval)
+        w2, h2, nxt = raw_frame(output)
+        now = time.monotonic()
+        if (w2, h2) == (w, h) and nxt == cur:
+            if now - still_since >= quiet:
+                return w, h, cur, True
+        else:
+            w, h, cur, still_since = w2, h2, nxt, now
+    return w, h, cur, False
+
+
+def mask_rects(
+    w: int, h: int, frame: bytes, source: bytes, rects: list[tuple[int, int, int, int]]
+) -> bytes:
+    """`frame` with each (x, y, w, h) rect copied from `source`, so those
+    pixels compare equal. Used to take the mouse pointer out of a diff on
+    compositors that draw it into captures."""
+    if not rects or len(frame) != len(source):
+        return frame
+    out = bytearray(frame)
+    for rx, ry, rw, rh in rects:
+        x0, y0 = max(0, rx), max(0, ry)
+        x1, y1 = min(w, rx + rw), min(h, ry + rh)
+        if x0 >= x1 or y0 >= y1:
+            continue
+        for y in range(y0, y1):
+            a, b = (y * w + x0) * 3, (y * w + x1) * 3
+            out[a:b] = source[a:b]
+    return bytes(out)
+
+
+_BLOCK = 16  # pixels per column probe when narrowing a changed row
+
+
+def _row_span(a: bytes, b: bytes, start: int, width: int) -> tuple[int, int]:
+    """First and last differing pixel columns of one row known to differ."""
+    stride = _BLOCK * 3
+    lo = hi = -1
+    for x0 in range(0, width, _BLOCK):
+        s = start + x0 * 3
+        if a[s : s + stride] != b[s : s + stride]:
+            if lo < 0:
+                lo = x0
+            hi = min(x0 + _BLOCK, width) - 1
+    return lo, hi
+
+
+def diff_boxes(
+    w: int, h: int, before: bytes, after: bytes, gap: int = 24, max_boxes: int = 4
+) -> list[tuple[int, int, int, int]]:
+    """Changed areas as (x, y, w, h) in the frame's pixels, top to bottom.
+
+    Changed rows are grouped into bands (rows closer than `gap` join one
+    band) and each band gets its own column extent, so a clicked button and
+    a clock ticking elsewhere stay two small boxes instead of one huge one.
+    More than `max_boxes` bands collapse into their union."""
+    if len(before) != len(after) or len(before) != w * h * 3:
+        return [(0, 0, w, h)]  # the output changed size: everything changed
+    row = w * 3
+    bands: list[list[int]] = []  # [y0, y1, x0, x1]
+    for y in range(h):
+        s = y * row
+        if before[s : s + row] == after[s : s + row]:
+            continue
+        x0, x1 = _row_span(before, after, s, w)
+        if bands and y - bands[-1][1] <= gap:
+            band = bands[-1]
+            band[1] = y
+            band[2] = min(band[2], x0)
+            band[3] = max(band[3], x1)
+        else:
+            bands.append([y, y, x0, x1])
+    if len(bands) > max_boxes:
+        bands = [
+            [
+                bands[0][0],
+                bands[-1][1],
+                min(b[2] for b in bands),
+                max(b[3] for b in bands),
+            ]
+        ]
+    return [(x0, y0, x1 - x0 + 1, y1 - y0 + 1) for y0, y1, x0, x1 in bands]

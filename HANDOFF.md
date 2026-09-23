@@ -129,6 +129,15 @@ WAYLAND-1) — that is why the headless output exists.
   fine), so the control chooser caps at 200. Google tic-tac-toe: `ui` now shows
   "Restart game" and the score; `click_ui "start a new game"` -> Restart game
   (jev 88%, 355 ms).
+- **DONE (#2, action + check in one call):** `--then changes` on every
+  acting verb: raw before/after frames of the focused monitor (grim PPM,
+  ~15 ms), wait until still for 0.3 s (max 2 s), row-band diff (bytes
+  equality, no numpy/PIL), pointer masked (the nested session draws it into
+  frames). Result: "nothing changed" (no image) / one crop per area (max 4) /
+  whole screen when >=50% changed. Live: mouse moves -> nothing changed
+  (~0.5 s); X on the board -> 4 crops incl. O's reply (1.9 s, the 0.3 s quiet
+  period caught Google's delayed move); foot command -> 2 crops, 0.7% of
+  screen (0.7 s). Not yet measured on the 1.6x host monitor.
 - **Friction to fix:** `sequence` steps use `op` (error says "unknown step op
   None" when given `tool`); `hypr` names its window arg `target` while every
   other tool uses `window`; Jev latency now 0.6–0.9 s (was ~0.3 s).

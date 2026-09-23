@@ -119,6 +119,24 @@ toolbar), or refuses when none fits:
     hyprcu click_ui "submit the form" --window "the web browser"
     # clicked button 'Send message' ... [jev: 92% in 294ms]
 
+**See only what changed: `--then changes`.** Every acting verb (pointer,
+keyboard, click_ui, hypr, use_bind, sequence) can return its own effect.
+hyprcu grabs a raw frame of the focused monitor before the action, waits
+until the screen has been still for 0.3 s (up to 2 s), and compares:
+nothing changed → one line of text and no image; a small change → one crop
+per changed area; most of the screen → the whole screenshot. The mouse
+pointer is masked out, so moving it is not a change. Reading an image is the
+slow, costly part of computer use, and most effects are small:
+
+    hyprcu pointer click 638 696 --then changes
+    # changes: 4 area(s) changed on TEST (3.2% of it, settled after 1735 ms): ...
+    hyprcu pointer move 1400 950 --then changes
+    # changes: nothing changed on TEST (settled after 408 ms)
+
+Measured on the nested test session (1600x1000): a raw frame is ~15 ms, a
+typical call 0.5–0.9 s including the wait; typing a command in foot returned
+two crops of 0.7% of the screen instead of a full screenshot.
+
 **Window-relative clicks.** `pointer` takes `window` + `x_pct`/`y_pct`
 (0.0–1.0); the window is focused first and the fraction is mapped to its
 current geometry, so the click survives moves and resizes. CLI:

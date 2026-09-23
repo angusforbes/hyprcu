@@ -37,7 +37,7 @@ OBSERVE = ("desktop", "screenshot", "zoom", "ui", "marks", "binds", "wait_for")
 ACT = ("pointer", "keyboard", "click_ui", "hypr", "launch", "use_bind", "sequence")
 OWNER = ("doctor", "init", "stop", "journal", "replay", "skill")
 ALIASES = {"click-ui": "click_ui", "use-bind": "use_bind", "wait-for": "wait_for"}
-THEN = ("none", "desktop", "ui", "screenshot")
+THEN = ("none", "desktop", "ui", "screenshot", "changes")
 HYPR_ACTIONS = (
     "workspace", "focus_window", "move_window", "close_window",
     "fullscreen", "toggle_floating", "dpms_on", "dpms_off",
