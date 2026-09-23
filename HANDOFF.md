@@ -143,6 +143,19 @@ WAYLAND-1) — that is why the headless output exists.
 4. Test the Chromium scale mapping by *clicking* on the 1.6-scale host monitor.
 5. Label `actions.jsonl` rows (`correct`) before any training use.
 
+## Ideas (not built)
+
+- **Screenshot cost plan** (capture is cheap, ~80 ms/90 KB full-res nested; the
+  model reading images is the cost): (1) auto-crop to the known target/affected
+  region, (2) return only the changed region vs the last shot ("nothing changed"
+  = no image), (3) answer simple questions locally (tesseract OCR, pixel/template
+  checks, small VLM), (4) default size budget (host is 1.6x scale), (5) use
+  `--stable` instead of sleeps. Start with 1+2; measure against T22 baseline
+  (9 calls, 5 screenshots).
+- **"Show the agent" (grim + slurp):** a keybind where Angus drags a region with
+  slurp, grim captures it, and hyprcu hands it to the agent with a question.
+  Human-to-agent only; agents' own shots keep computed regions.
+
 ## Where things are
 
 | what | path |
