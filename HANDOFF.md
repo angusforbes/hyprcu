@@ -179,6 +179,21 @@ WAYLAND-1) — that is why the headless output exists.
   stays local; the description goes to TypeSafe (same rule as names). Estimated
   ~2–3 s (unmeasured). Benchmark VLM+Jev vs Haiku-alone on the real-app set.
 
+- **Visual Jev** (arXiv 2609.25845, Yu & Yao, independent; site
+  guanxuyu-sv.github.io/Visual-Jev; code+data on GitHub, NO weights, no license).
+  Qwen3-VL-4B; image + shared context encoded once, many isolated questions run
+  as one batch, candidate probabilities read from the LM head (no generation).
+  RTX 5090 bf16: 48 ms for 1 question; 32 questions ~182 ms total. Their SFT:
+  macro 0.706 -> 0.761, gains only on trained families (natural images; no GUI
+  benchmarks). Off-the-shelf backbone + LM-head readout = 0.706. Caution:
+  confidence stays >0.6 when the evidence is destroyed; they needed a separate
+  sufficiency output. **Plan update:** kev-vision = off-the-shelf Qwen3-VL-4B
+  with Visual-Jev-style shared-prefix batched readout; ask MANY questions per
+  screenshot (did it work / dialog up / loading / which button); escalate on an
+  explicit "can't tell" option, not on low probability. Measure laptop-GPU
+  latency (guess 0.3–0.5 s/screenshot) and accuracy on the real-app set; later
+  LoRA on hyprcu's own logged screenshots if needed.
+
 ## Where things are
 
 | what | path |
