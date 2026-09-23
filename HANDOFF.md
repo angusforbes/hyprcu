@@ -146,6 +146,21 @@ WAYLAND-1) — that is why the headless output exists.
   first game, which saved ~1.5 min of exploration.
 - Reboot wiped /tmp: the test pages now live in `tools/nested-site/` and
   `tools/nested-session.sh` copies them.
+- **#3 vision benchmark (2026-09-23): `tools/vision_bench/run.py`.** 46
+  questions an agent asks after acting (read / locate / state / selected /
+  cannot-tell), 31 public on nested-session screenshots (repo) + 15 private
+  on Angus's real desktop (Slack, herdr terminal, Omarchy bar) in
+  ~/.local/share/hyprcu/vision-bench/ (never committed). One-letter answers
+  via `pi -p`. Results: **Sonnet 4.6 45/46 (98%), all public right; Haiku
+  4.5 40/46 (87%)**; median 1.3–1.7 s per question incl. ~1 s pi startup.
+  Weak spots: "cannot tell" (models over-commit; Sonnet called "battery
+  >50%" contradicted with no battery icon shown), tic-tac-toe square
+  positions and a small digit (Haiku). The 2880x56 bar downscaled to 1568
+  wide is ~30 px tall: send thin strips as native-res crops. Label lesson:
+  the Omarchy bar's grey slashed mic is NOT "muted" (wpctl: 0.58, unmuted) —
+  both models were right and my gold was wrong; check real state when
+  labelling. Next: add kev-vision (local Qwen3-VL-4B, Visual-Jev readout)
+  and VLM+Jev as backends; grow the private set (Obsidian, dialogs, menus).
 - **Friction to fix:** `sequence` steps use `op` (error says "unknown step op
   None" when given `tool`); `hypr` names its window arg `target` while every
   other tool uses `window`; Jev latency now 0.6–0.9 s (was ~0.3 s).

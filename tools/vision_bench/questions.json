@@ -1,0 +1,423 @@
+[
+ {
+  "image": "nested_home_counter",
+  "kind": "choice",
+  "tag": "read",
+  "question": "What number does the counter show?",
+  "options": [
+   "0",
+   "1",
+   "2",
+   "3"
+  ],
+  "answer": "2"
+ },
+ {
+  "image": "nested_home_counter",
+  "kind": "choice",
+  "tag": "locate",
+  "question": "Which control leads to the page with the secret word?",
+  "options": [
+   "Contact form link",
+   "About us link",
+   "Increment button",
+   "Reload button"
+  ],
+  "answer": "About us link"
+ },
+ {
+  "image": "nested_home_counter",
+  "kind": "claim",
+  "tag": "state",
+  "question": "The browser has more than one tab open.",
+  "options": [
+   "supported",
+   "contradicted",
+   "cannot tell"
+  ],
+  "answer": "contradicted"
+ },
+ {
+  "image": "nested_home_counter",
+  "kind": "choice",
+  "tag": "read",
+  "question": "What is the title of the open tab?",
+  "options": [
+   "Test Home",
+   "Test Home 2",
+   "Contact Form",
+   "New Tab"
+  ],
+  "answer": "Test Home 2"
+ },
+ {
+  "image": "nested_form_partial",
+  "kind": "choice",
+  "tag": "read",
+  "question": "What is typed in the 'Your name' field?",
+  "options": [
+   "(empty)",
+   "Ada Lovelace",
+   "ada@example.com",
+   "Grace Hopper"
+  ],
+  "answer": "Ada Lovelace"
+ },
+ {
+  "image": "nested_form_partial",
+  "kind": "claim",
+  "tag": "state",
+  "question": "The email address field has been filled in.",
+  "options": [
+   "supported",
+   "contradicted",
+   "cannot tell"
+  ],
+  "answer": "contradicted"
+ },
+ {
+  "image": "nested_form_partial",
+  "kind": "claim",
+  "tag": "selected",
+  "question": "The 'Subscribe to newsletter' box is ticked.",
+  "options": [
+   "supported",
+   "contradicted",
+   "cannot tell"
+  ],
+  "answer": "supported"
+ },
+ {
+  "image": "nested_form_partial",
+  "kind": "choice",
+  "tag": "selected",
+  "question": "Which topic is selected?",
+  "options": [
+   "General",
+   "Billing",
+   "Support",
+   "none"
+  ],
+  "answer": "General"
+ },
+ {
+  "image": "nested_form_partial",
+  "kind": "choice",
+  "tag": "locate",
+  "question": "Which control submits the form?",
+  "options": [
+   "Send message button",
+   "Back home link",
+   "Topic dropdown",
+   "Reload button"
+  ],
+  "answer": "Send message button"
+ },
+ {
+  "image": "nested_about",
+  "kind": "choice",
+  "tag": "read",
+  "question": "What is the secret word?",
+  "options": [
+   "banana",
+   "pineapple",
+   "mango",
+   "not shown"
+  ],
+  "answer": "pineapple"
+ },
+ {
+  "image": "nested_about",
+  "kind": "claim",
+  "tag": "state",
+  "question": "A dialog or popup is covering the page.",
+  "options": [
+   "supported",
+   "contradicted",
+   "cannot tell"
+  ],
+  "answer": "contradicted"
+ },
+ {
+  "image": "nested_about",
+  "kind": "claim",
+  "tag": "cannot-tell",
+  "question": "The About page was last updated in 2024.",
+  "options": [
+   "supported",
+   "contradicted",
+   "cannot tell"
+  ],
+  "answer": "cannot tell"
+ },
+ {
+  "image": "nested_files_nodialog",
+  "kind": "claim",
+  "tag": "state",
+  "question": "A confirmation dialog is open.",
+  "options": [
+   "supported",
+   "contradicted",
+   "cannot tell"
+  ],
+  "answer": "contradicted"
+ },
+ {
+  "image": "nested_files_nodialog",
+  "kind": "choice",
+  "tag": "read",
+  "question": "How many files are listed?",
+  "options": [
+   "2",
+   "3",
+   "4",
+   "5"
+  ],
+  "answer": "3"
+ },
+ {
+  "image": "nested_files_dialog",
+  "kind": "claim",
+  "tag": "state",
+  "question": "A confirmation dialog is open.",
+  "options": [
+   "supported",
+   "contradicted",
+   "cannot tell"
+  ],
+  "answer": "supported"
+ },
+ {
+  "image": "nested_files_dialog",
+  "kind": "choice",
+  "tag": "read",
+  "question": "What does the dialog ask?",
+  "options": [
+   "Delete 3 files?",
+   "Save changes?",
+   "Leave site?",
+   "Log out?"
+  ],
+  "answer": "Delete 3 files?"
+ },
+ {
+  "image": "nested_files_dialog",
+  "kind": "choice",
+  "tag": "locate",
+  "question": "Which button keeps the files?",
+  "options": [
+   "Delete",
+   "Cancel",
+   "Delete all",
+   "Back home"
+  ],
+  "answer": "Cancel"
+ },
+ {
+  "image": "nested_files_dialog",
+  "kind": "claim",
+  "tag": "state",
+  "question": "The files have already been deleted.",
+  "options": [
+   "supported",
+   "contradicted",
+   "cannot tell"
+  ],
+  "answer": "contradicted"
+ },
+ {
+  "image": "nested_google_results",
+  "kind": "choice",
+  "tag": "read",
+  "question": "What is the title of the first search result?",
+  "options": [
+   "Hyprland",
+   "Can someone explain to me what Hyprland exactly is?",
+   "Sway",
+   "Wayland"
+  ],
+  "answer": "Hyprland"
+ },
+ {
+  "image": "nested_google_results",
+  "kind": "claim",
+  "tag": "state",
+  "question": "The user is signed in to Google.",
+  "options": [
+   "supported",
+   "contradicted",
+   "cannot tell"
+  ],
+  "answer": "contradicted"
+ },
+ {
+  "image": "nested_google_results",
+  "kind": "choice",
+  "tag": "locate",
+  "question": "Which control shows only video results?",
+  "options": [
+   "Videos tab",
+   "Images tab",
+   "Tools menu",
+   "Sign in button"
+  ],
+  "answer": "Videos tab"
+ },
+ {
+  "image": "nested_google_results",
+  "kind": "choice",
+  "tag": "read",
+  "question": "What was searched for?",
+  "options": [
+   "hyprland wayland compositor",
+   "hyprland",
+   "wayland compositor",
+   "sway vs hyprland"
+  ],
+  "answer": "hyprland wayland compositor"
+ },
+ {
+  "image": "nested_google_results",
+  "kind": "claim",
+  "tag": "cannot-tell",
+  "question": "The Hyprland website is currently down.",
+  "options": [
+   "supported",
+   "contradicted",
+   "cannot tell"
+  ],
+  "answer": "cannot tell"
+ },
+ {
+  "image": "nested_ttt_midgame",
+  "kind": "choice",
+  "tag": "read",
+  "question": "Whose turn is it in the tic-tac-toe game?",
+  "options": [
+   "X",
+   "O",
+   "the game is over",
+   "cannot tell"
+  ],
+  "answer": "X"
+ },
+ {
+  "image": "nested_ttt_midgame",
+  "kind": "choice",
+  "tag": "read",
+  "question": "Which square has an O?",
+  "options": [
+   "top-left",
+   "top-middle",
+   "top-right",
+   "middle-left",
+   "centre",
+   "middle-right",
+   "bottom-left",
+   "bottom-middle",
+   "bottom-right",
+   "none"
+  ],
+  "answer": "middle-right"
+ },
+ {
+  "image": "nested_ttt_midgame",
+  "kind": "claim",
+  "tag": "state",
+  "question": "The tic-tac-toe game is over.",
+  "options": [
+   "supported",
+   "contradicted",
+   "cannot tell"
+  ],
+  "answer": "contradicted"
+ },
+ {
+  "image": "nested_ttt_midgame",
+  "kind": "choice",
+  "tag": "read",
+  "question": "Which square has an O?",
+  "options": [
+   "top-left",
+   "top-middle",
+   "top-right",
+   "middle-left",
+   "centre",
+   "middle-right",
+   "bottom-left",
+   "bottom-middle",
+   "bottom-right",
+   "none"
+  ],
+  "answer": "middle-right",
+  "crop": [
+   480,
+   520,
+   320,
+   340
+  ]
+ },
+ {
+  "image": "nested_ttt_midgame",
+  "kind": "choice",
+  "tag": "selected",
+  "question": "Which difficulty is selected?",
+  "options": [
+   "Easy",
+   "Medium",
+   "Impossible",
+   "cannot tell"
+  ],
+  "answer": "Medium"
+ },
+ {
+  "image": "nested_foot_error",
+  "kind": "claim",
+  "tag": "state",
+  "question": "The last command succeeded.",
+  "options": [
+   "supported",
+   "contradicted",
+   "cannot tell"
+  ],
+  "answer": "contradicted"
+ },
+ {
+  "image": "nested_foot_error",
+  "kind": "choice",
+  "tag": "read",
+  "question": "What exit status was printed?",
+  "options": [
+   "0",
+   "1",
+   "2",
+   "127"
+  ],
+  "answer": "2"
+ },
+ {
+  "image": "nested_foot_error",
+  "kind": "choice",
+  "tag": "read",
+  "question": "Which path did not exist?",
+  "options": [
+   "/nonexistent-dir",
+   "/tmp/hyprcu-nested",
+   "/home",
+   "board.txt"
+  ],
+  "answer": "/nonexistent-dir"
+ },
+ {
+  "image": "nested_foot_error",
+  "kind": "claim",
+  "tag": "state",
+  "question": "The terminal shows a prompt ready for a new command.",
+  "options": [
+   "supported",
+   "contradicted",
+   "cannot tell"
+  ],
+  "answer": "supported"
+ }
+]

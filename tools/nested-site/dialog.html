@@ -1,0 +1,9 @@
+<!doctype html><html><head><title>Files</title>
+<style>dialog{padding:20px;border:2px solid #444}dialog::backdrop{background:rgba(0,0,0,.4)}</style></head><body>
+<h1>Files</h1>
+<ul><li>report-q3.pdf</li><li>notes.txt</li><li>photo.jpg</li></ul>
+<button onclick="document.getElementById('d').showModal()">Delete all</button>
+<dialog id="d"><p><b>Delete 3 files?</b> This cannot be undone.</p>
+<button onclick="d.close();document.title='Files deleted'">Delete</button>
+<button onclick="d.close()">Cancel</button></dialog>
+<a href="index.html">Back home</a></body></html>
