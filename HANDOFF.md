@@ -156,6 +156,23 @@ WAYLAND-1) — that is why the headless output exists.
   slurp, grim captures it, and hyprcu hands it to the agent with a question.
   Human-to-agent only; agents' own shots keep computed regions.
 
+- **Fast vision step (general, not game-specific).** Measured 2026-09-23: in a
+  fresh short context Haiku 4.5 / Sonnet 4.6 / Opus 4.8 read a screenshot in
+  1.4–3.3 s (vs ~35 s per move in the main agent: long context + generation).
+  Accuracy uneven on tiny crops (160 px) — use ~300–400 px crops + verification.
+  NIM vision models: 404 on this key or timed out. Jev (TypeSafe) is text-only.
+  Jev-Omni (akhilaaa3, Gemma 4 12B, Apache-2.0, independent) needs 24 GB bf16 —
+  does not fit the 8 GB GPU next to kev.
+  Plan: (a) Haiku as the vision step now (single-letter answers over lettered
+  options); (b) build **kev-vision**: small open VLM (Qwen2.5-VL-3B / Gemma 3
+  4B, NF4 ~3 GB) scoring lettered options by next-token probability, like kev —
+  local, private, calibrated; (c) keep whichever wins. Question types: which
+  control/region matches X, did the action work, what does this region say, is a
+  dialog/error/login wall up, which option is selected. **Benchmark on Angus's
+  real apps**, not tic-tac-toe alone: Chromium pages/forms, foot output, Slack,
+  Obsidian, dialogs, Omarchy bar/launcher, canvas apps. Text first: a11y +
+  titles via Jev; images only for what text cannot answer.
+
 ## Where things are
 
 | what | path |
