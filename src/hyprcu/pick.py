@@ -1,15 +1,24 @@
-"""Natural-language window selection via a local kev (Jev-compatible) server.
+"""Natural-language window (and control) selection via a System One chooser:
+Jev (TypeSafe cloud) or a local kev (Jev-compatible) server.
 
 `window` arguments across the server accept three forms:
   - an address       "0x561283a8e870"        → exact
   - a substring      "Strata", "Slack"       → case-insensitive on class/title
-  - a description    "the file browser"      → kev choice over open windows
+  - a description    "the file browser"      → chooser over open windows
 
 The chokepoint is `resolve()`. It returns (client, note) where note is "" or
-" [kev: NN% in Nms]" for the caller to append to its result text.
+" [jev: NN% in Nms]" for the caller to append to its result text.
+`choose_control()` does the same for a window's accessible controls, so
+click_ui can take "submit the form" as well as "Send message".
 
 Env:
-  KEV_URL   default http://127.0.0.1:8009/v1/systemone  (kev, Jev, openjev…)
+  HYPRCU_CHOOSER  kev (default) | jev. Jev sends window titles / control
+                  names to TypeSafe's API: opt-in. Measured (tools/choice_bench.py,
+                  29 synthetic queries): Jev with an explicit NONE option 28/29 at
+                  ~0.6 s; kev-4b 25/29 at 1.7-2.8 s (grows with option count).
+  TYPESAFE_API_KEY  required for jev (read from the environment only)
+  JEV_URL / JEV_MODEL  default https://api.typesafe.ai/v1/systemone, jev-latest
+  KEV_URL   default http://127.0.0.1:8009/v1/systemone  (kev, openjev…)
   KEV_GATE  default 0.5 — below this, resolution fails with a message
             pointing at desktop()/launch, because the app is probably not open.
 """
@@ -25,7 +34,63 @@ from typing import Any
 
 KEV_URL = os.environ.get("KEV_URL", "http://127.0.0.1:8009/v1/systemone")
 KEV_GATE = float(os.environ.get("KEV_GATE", "0.5"))
-KEV_TIMEOUT_S = 3.0
+KEV_TIMEOUT_S = 6.0  # kev-4b NF4 takes ~2.8 s for ~20 options on the laptop GPU
+JEV_URL = os.environ.get("JEV_URL", "https://api.typesafe.ai/v1/systemone")
+JEV_MODEL = os.environ.get("JEV_MODEL", "jev-latest")
+JEV_TIMEOUT_S = 8.0
+NONE = "NONE"  # the explicit abstain option offered to Jev
+# resolve() sentinel: the chooser answered "none of these" (distinct from unreachable)
+ABSTAINED: dict[str, Any] = {"address": NONE}
+
+
+def chooser() -> str:
+    """The configured backend, read per call so tests/env changes apply."""
+    return "jev" if os.environ.get("HYPRCU_CHOOSER", "kev").strip().lower() == "jev" else "kev"
+
+
+def backend_url() -> str:
+    return JEV_URL if chooser() == "jev" else KEV_URL
+
+
+def choose(
+    state: str, instructions: str, criteria: dict[str, str], none_label: str = ""
+) -> dict[str, Any] | None:
+    """One System One choice. With Jev and a none_label, offers an explicit
+    NONE option (Jev abstains well with one; kev over-abstains, so kev keeps the
+    probability gate instead). Returns {backend, choice, p, ms, probs}, or None
+    when the backend is unreachable or misconfigured."""
+    backend = chooser()
+    crit = dict(criteria)
+    if backend == "jev" and none_label:
+        crit[NONE] = none_label
+        instructions += " If none of them fits, choose NONE."
+    headers = {"content-type": "application/json"}
+    if backend == "jev":
+        key = os.environ.get("TYPESAFE_API_KEY", "")
+        if not key:
+            return None
+        headers["authorization"] = f"Bearer {key}"
+    body = {
+        "model": JEV_MODEL if backend == "jev" else "kev",
+        "state": state,
+        "questions": {"q": {"type": "choice", "instructions": instructions, "criteria": crit}},
+    }
+    req = urllib.request.Request(backend_url(), json.dumps(body).encode(), headers)
+    t0 = time.time()
+    try:
+        timeout = JEV_TIMEOUT_S if backend == "jev" else KEV_TIMEOUT_S
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            ans = json.load(r)["answers"]["q"]
+    except (urllib.error.URLError, OSError, KeyError, json.JSONDecodeError, TimeoutError):
+        return None
+    probs = {k: float(v) for k, v in ans["probabilities"].items()}
+    return {
+        "backend": backend,
+        "choice": ans["choice"],
+        "p": probs.get(ans["choice"], 0.0),
+        "ms": int((time.time() - t0) * 1000),
+        "probs": probs,
+    }
 
 # Human-friendly hints so a text model can match "file browser" → Strata.
 # Extend as apps are learned; the pi extension's LESSONS.md is the source.
@@ -63,45 +128,35 @@ def describe(c: dict[str, Any]) -> str:
 
 
 def _kev(query: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, float, int]:
-    c, p, ms, _ = _kev_full(query, clients)
+    c, p, ms, _ = _kev_full(query, clients, allow_none=True)
     return c, p, ms
 
 
 def _kev_full(
-    query: str, clients: list[dict[str, Any]]
+    query: str, clients: list[dict[str, Any]], allow_none: bool = False
 ) -> tuple[dict[str, Any] | None, float, int, dict[str, float]]:
-    """(chosen client, probability, ms, all probabilities).
+    """(chosen client, probability, ms, all probabilities) from the chooser.
 
-    (None, 0, 0, {}) if kev is unreachable.
+    (None, 0, 0, {}) if the chooser is unreachable; (ABSTAINED, p, ms, probs)
+    when allow_none and it answered "none of these". (Name kept from the
+    kev-only days; it uses whichever backend chooser() selects.)
     """
     if not clients:
         return None, 0.0, 0, {}
-    if len(clients) == 1:
+    if len(clients) == 1 and not allow_none:
         return clients[0], 1.0, 0, {clients[0]["address"]: 1.0}
-    criteria = {c["address"]: describe(c) for c in clients}
-    body = {
-        "model": "kev",
-        "state": f'The user wants to interact with: "{query}"',
-        "questions": {"w": {
-            "type": "choice",
-            "instructions": "Which open window best matches what the user described?",
-            "criteria": criteria,
-        }},
-    }
-    req = urllib.request.Request(
-        KEV_URL, json.dumps(body).encode(), {"content-type": "application/json"}
+    ans = choose(
+        f'The user wants to interact with: "{query}"',
+        "Which open window best matches what the user described?",
+        {c["address"]: describe(c) for c in clients},
+        none_label="None of the open windows match this description" if allow_none else "",
     )
-    t0 = time.time()
-    try:
-        with urllib.request.urlopen(req, timeout=KEV_TIMEOUT_S) as r:
-            ans = json.load(r)["answers"]["w"]
-    except (urllib.error.URLError, OSError, KeyError, json.JSONDecodeError, TimeoutError):
+    if ans is None:
         return None, 0.0, 0, {}
-    ms = int((time.time() - t0) * 1000)
-    addr = ans["choice"]
-    client = next((c for c in clients if c["address"] == addr), None)
-    probs = {k: float(v) for k, v in ans["probabilities"].items()}
-    return client, probs.get(addr, 0.0), ms, probs
+    if ans["choice"] == NONE:
+        return ABSTAINED, ans["p"], ans["ms"], ans["probs"]
+    client = next((c for c in clients if c["address"] == ans["choice"]), None)
+    return client, ans["p"], ans["ms"], ans["probs"]
 
 
 def resolve(window: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any], str]:
@@ -127,19 +182,70 @@ def resolve(window: str, clients: list[dict[str, Any]]) -> tuple[dict[str, Any],
             ranked = sorted(probs.values(), reverse=True)
             margin = ranked[0] - (ranked[1] if len(ranked) > 1 else 0.0)
             if p >= KEV_GATE or margin >= 0.15:
-                return c, f" [kev: {p:.0%} of {len(hits)} matches, {ms}ms]"
+                return c, f" [{chooser()}: {p:.0%} of {len(hits)} matches, {ms}ms]"
         names = "; ".join(f"{h['address']} {describe(h)[:40]}" for h in hits[:6])
         raise ResolveError(f"{q!r} matches {len(hits)} windows — pass an address: {names}")
     # no substring hit: natural language over visible, mapped windows
     visible = [c for c in clients if c.get("mapped", True)
                and c.get("workspace", {}).get("name") != "special:reprieve"]
     c, p, ms = _kev(q, visible or clients)
+    who = chooser()
     if c is None:
-        raise ResolveError(f"no window matches {q!r} and kev is unreachable at {KEV_URL}; "
-                           f"pass an address from desktop()")
+        raise ResolveError(f"no window matches {q!r} and the {who} chooser is unreachable "
+                           f"at {backend_url()}; pass an address from desktop()")
+    if c is ABSTAINED:
+        raise ResolveError(
+            f"no open window matches {q!r} ({who}: none of them, {p:.0%}). "
+            "The app may not be open — check desktop() or launch it."
+        )
     if p < KEV_GATE:
         raise ResolveError(
-            f"no confident match for {q!r} (kev best guess {p:.0%} < {KEV_GATE:.0%}: "
+            f"no confident match for {q!r} ({who} best guess {p:.0%} < {KEV_GATE:.0%}: "
             f"{describe(c)[:50]}). The app may not be open — check desktop() or launch it."
         )
-    return c, f" [kev: {p:.0%} in {ms}ms]"
+    return c, f" [{who}: {p:.0%} in {ms}ms]"
+
+
+def _control_label(e: dict[str, Any], browser: bool) -> str:
+    label = f'{e.get("role", "")} "{e.get("name", "")}"'
+    if browser:  # lets the chooser tell the browser's Back from a page's "Back home"
+        label += " (web page)" if e.get("in_page") else " (browser toolbar or tab strip)"
+    for key in ("value", "checked", "percent"):
+        if key in e:
+            label += f" {key}={e[key]!r}"
+    return label
+
+
+def choose_control(query: str, elements: list[dict[str, Any]]) -> tuple[dict[str, Any], str]:
+    """Pick the control a description refers to ("submit the form") from a
+    window's actionable elements (as returned by server._ui_read). Offers an
+    explicit NONE; raises ResolveError when nothing fits, the chooser is
+    unsure, or it is unreachable. Returns (element, note)."""
+    usable = [e for e in elements if e.get("clickable", True)]
+    if not usable:
+        raise ResolveError(f"no clickable controls to match {query!r} against")
+    browser = any(e.get("in_page") for e in usable)
+    ans = choose(
+        f'The user asked: "{query}"',
+        "Which control should be activated to do what the user asked?",
+        {f"c{i}": _control_label(e, browser) for i, e in enumerate(usable)},
+        none_label="No control in this window does what the user asked",
+    )
+    who = chooser()
+    if ans is None:
+        raise ResolveError(
+            f"no control is named {query!r} and the {who} chooser is unreachable at "
+            f"{backend_url()}; call ui() and click by exact name"
+        )
+    if ans["choice"] == NONE:
+        raise ResolveError(
+            f"no control does {query!r} ({who}: none of them, {ans['p']:.0%}); "
+            "call ui() to see them"
+        )
+    if ans["p"] < KEV_GATE:
+        raise ResolveError(
+            f"not sure which control does {query!r} ({who} best guess {ans['p']:.0%}); "
+            "call ui() and click by exact name"
+        )
+    e = usable[int(ans["choice"][1:])]
+    return e, f" [{who}: {ans['p']:.0%} in {ans['ms']}ms]"

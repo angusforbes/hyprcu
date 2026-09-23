@@ -326,7 +326,8 @@ def zoom(
 
 def _resolve_window(window: str) -> dict[str, Any]:
     """The hyprctl client for `window`: an address, a class/title substring, or a
-    natural-language description resolved by kev (pick.py). '' or 'active' = focused."""
+    natural-language description resolved by the chooser (Jev or kev, pick.py). '' or
+    'active' = focused."""
     clients = hyprctl.query("clients")
     if not window or window == "active":
         target = (hyprctl.query("activewindow") or {}).get("address")
@@ -336,7 +337,7 @@ def _resolve_window(window: str) -> dict[str, Any]:
         if client is None:
             raise ValueError(f"window {target!r} not found, call desktop() for current addresses")
         return client
-    # hyprcu: address → class/title substring → kev natural language (see pick.py)
+    # hyprcu: address → class/title substring → chooser (Jev/kev) natural language (pick.py)
     try:
         client, note = pick.resolve(window, clients)
     except pick.ResolveError as e:
@@ -456,6 +457,8 @@ def _ui_read(window: str = "", name: str = "", actionable: bool = True) -> list[
         for key in ("value", "percent", "checked"):  # present only where it applies
             if key in e:
                 item[key] = e[key]
+        if e.get("document"):
+            item["in_page"] = True  # inside a web document (vs the browser's own UI)
         out.append(item)
     if not out:
         what = f"matching {name!r}" if name else "actionable"
@@ -908,7 +911,9 @@ def click_ui(
     through the real pointer (visible cursor),
     so no screenshot and no pixel estimation is spent. Pass exactly one of
     `name` (matched against `window`'s controls, exact accessible name
-    preferred, substring otherwise) or `mark`. An ambiguous name returns
+    preferred, substring otherwise; when NO control is named that, `name` is
+    taken as a description, e.g. "submit the form", and the chooser picks
+    the control or says none fits) or `mark`. An ambiguous name returns
     the candidates instead of guessing: disambiguate with `index` (0-based
     into that list) or a more specific name. Falls back with a note when
     the app exposes no tree (use screenshot + zoom + pointer then).
@@ -916,6 +921,7 @@ def click_ui(
     'ui' shows the click's effect on the controls in the same call."""
     safety.touch("click_ui")
     trust.guard_seat()
+    chosen_note = ""  # set when a description was resolved by the chooser
     if bool(name) == bool(mark):
         raise ValueError("pass exactly one of `name` or `mark`")
     if mark:
@@ -943,7 +949,19 @@ def click_ui(
         client = _resolve_window(window)
         elements = _ui_read(client["address"], name=name)
         if isinstance(elements, str):
-            return elements
+            if not elements.startswith("no matching"):
+                return elements  # no tree / read failed: the message says what to do
+            # no control is NAMED that: treat `name` as a description
+            # ("submit the form") and let the chooser pick among all controls
+            everything = _ui_read(client["address"])
+            if isinstance(everything, str):
+                return elements
+            try:
+                picked, chosen_note = pick.choose_control(name, everything)
+            except pick.ResolveError as exc:
+                return f"{elements}; {exc}"
+            elements = [picked]
+            name = picked["name"]
         exact = [e for e in elements if e["name"].lower() == name.lower()]
         pool = exact or elements
         if index >= 0:
@@ -982,7 +1000,7 @@ def click_ui(
     # observe the CLICKED window, not whatever holds focus after the click
     # (the click itself may have spawned a dialog that stole it)
     return _acted(
-        f"clicked {desc} at ({x}, {y}) in {client.get('class', '')}",
+        f"clicked {desc} at ({x}, {y}) in {client.get('class', '')}{chosen_note}",
         then,
         window=client["address"],
     )
@@ -993,7 +1011,7 @@ _ADDR = re.compile(r"^0x[0-9a-fA-F]+$")
 
 def _addr(target: str) -> str:
     """`address:0x…` for a hypr dispatch. hyprcu: a non-address target is
-    resolved (substring → kev) and the result cached on the call so the
+    resolved (substring → chooser) and the result cached on the call so the
     message can report what was chosen."""
     if not _ADDR.match(target):
         client = _resolve_window(target)
