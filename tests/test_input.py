@@ -55,22 +55,25 @@ class FakeVP:
     def button(self, button, state):
         self.events.append((button, state))
 
+    def move_to(self, x, y):  # drag sends real motion from its own pointer
+        pass
+
 
 def test_drag_tracks_and_clears_held_button(monkeypatch):
     vp = FakeVP()
     seen = []
     monkeypatch.setattr(hinput, "_vp", vp)
-    # every path move observes the flag: this is what a SIGTERM landing
-    # mid-drag would see, so it must read "left" for the entire hold
-    monkeypatch.setattr(hinput, "move", lambda x, y: seen.append(hinput._held_button))
+    # every motion observes the flag: this is what a SIGTERM landing mid-drag
+    # would see, so it must read "left" for the entire hold
+    vp.move_to = lambda x, y: seen.append(hinput._held_button)
     monkeypatch.setattr(hinput.time, "sleep", lambda s: None)
     hinput.drag(0, 0, 10, 10)
     from hyprcu.wire import PRESSED, RELEASED
 
     assert vp.events == [("left", PRESSED), ("left", RELEASED)]
     assert hinput._held_button is None
-    assert len(seen) == 13  # the initial placement move + 12 path moves
-    assert seen[1:] == ["left"] * 12  # tracked through the whole hold
+    # the placement motion, then 20 path motions and 3 hover motions, all held
+    assert seen[0] is None and seen[1:] == ["left"] * 23
 
 
 def test_concurrent_drags_never_interleave(monkeypatch):

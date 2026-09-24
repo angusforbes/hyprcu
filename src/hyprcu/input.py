@@ -303,17 +303,27 @@ def drag(x1: float, y1: float, x2: float, y2: float, button: str = "left") -> No
         _held_button = button
         p.button(button, PRESSED)
         try:
-            steps = 12
+            # Real motion from THIS pointer (a cursor warp is not motion), paced
+            # so toolkits see a drag: GTK starts drag-and-drop only after the
+            # pointer passes its threshold, and drops only onto a target that
+            # has seen motion after the drag session started. Released too soon
+            # (the old 180 ms sweep), the drag stayed live with no drop.
+            time.sleep(0.05)
+            steps = 20
             for i in range(1, steps + 1):
-                move(x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps)
-                time.sleep(0.015)
+                p.move_to(x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps)
+                time.sleep(0.02)
+            for dx in (2, -2, 0):  # hover over the target so it registers
+                time.sleep(0.08)
+                p.move_to(x2 + dx, y2)
+            time.sleep(0.15)
         finally:
             p.button(button, RELEASED)
             _held_button = None
 
     with _seat_lock:
-        move(x1, y1)
-        time.sleep(0.03)
+        _with_pointer(lambda p: p.move_to(x1, y1))
+        time.sleep(0.05)
         _with_pointer(run)
 
 
