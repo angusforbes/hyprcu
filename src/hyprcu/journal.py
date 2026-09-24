@@ -108,8 +108,18 @@ def journaled(
 
 
 # ── upstream surface kept as no-ops ────────────────────────────────────────
-def dry_run() -> bool: return False
-def refuse_if_dry(what: str) -> None: ...
+def dry_run() -> bool:
+    """HYPRCU_DRYRUN (the CLI's --dry-run sets it): every acting tool runs its
+    checks and reports its plan, and delivers nothing. This was a no-op stub
+    inherited from the fork, which silently made every --dry-run real."""
+    return os.environ.get("HYPRCU_DRYRUN", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def refuse_if_dry(what: str) -> None:
+    """The last barrier before input reaches the seat: a code path that missed
+    its own dry-run check fails loudly instead of acting."""
+    if dry_run():
+        raise RuntimeError(f"dry run: {what} would have delivered input; nothing was sent")
 def start(*a: Any, **k: Any) -> None: ...
 def stop(*a: Any, **k: Any) -> None: ...
 def set_source(*a: Any, **k: Any) -> None: ...

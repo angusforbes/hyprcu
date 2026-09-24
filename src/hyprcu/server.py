@@ -685,7 +685,23 @@ def _prime(then: str) -> None:
 
 
 # The areas the most recent then='changes' reported, for check(image="last").
+# Kept in a file as well: each shell verb is a separate process.
 _last_change: dict[str, Any] = {}
+
+
+def _remember_change(rects: list[tuple[int, int, int, int]]) -> None:
+    _last_change["rects"] = rects
+    with contextlib.suppress(OSError):
+        (_runtime_dir() / "last-change.json").write_text(json.dumps(rects))
+
+
+def _recall_change() -> list[Any]:
+    if _last_change.get("rects"):
+        return _last_change["rects"]
+    try:
+        return json.loads((_runtime_dir() / "last-change.json").read_text())
+    except (OSError, ValueError):
+        return []
 
 
 def _changes(head: Any) -> list[Any]:
@@ -741,13 +757,14 @@ def _changes(head: Any) -> list[Any]:
     share = sum(bwid * bhgt for _x, _y, bwid, bhgt in boxes) / float(w * h)
     listed = ", ".join(f"{x},{y} {rw}x{rh}" for x, y, rw, rh in rects)
     if share >= _CHANGE_WHOLE:
+        _remember_change([(mx, my, mw, mh)])
         summary = f"changes: {share:.0%} of {m['name']} changed ({waited}); whole screen follows"
         return [head, _text(summary), *_deliver_capture()]
     summary = (
         f"changes: {len(rects)} area(s) changed on {m['name']} ({share:.1%} of it, {waited}): "
         f"{listed}; one crop per area follows"
     )
-    _last_change["rects"] = rects
+    _remember_change(rects)
     out = [head, _text(summary)]
     for x, y, rw, rh in rects:
         out.extend(_deliver_capture(region=f"{x},{y},{rw}x{rh}"))
@@ -1453,7 +1470,7 @@ def _escalate(model: str, image: str, question: str, options: list[str]) -> str 
 def _check_image(window: str, region: str, image: str) -> str:
     """A file for the vision model: the last change area(s), or a fresh capture."""
     if image == "last":
-        rects = _last_change.get("rects")
+        rects = _recall_change()
         if not rects:
             raise ValueError("no earlier then='changes' result to look at; omit image")
         x0 = min(r[0] for r in rects)

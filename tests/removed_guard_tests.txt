@@ -47,7 +47,6 @@ tests/test_use_bind.py::test_hypr_focus_window_refused_out_of_scope
 tests/test_use_bind.py::test_use_bind_refused_under_confinement
 tests/test_verbs.py::test_a_changed_mode_opens_a_new_header
 tests/test_verbs.py::test_a_dry_run_between_real_calls_does_not_open_a_new_header
-tests/test_verbs.py::test_dry_run_flag_turns_the_rehearsal_on
 tests/test_verbs.py::test_journal_entries_from_the_cli_carry_a_source_and_one_header
 tests/test_verbs.py::test_seq_numbers_are_unique_across_writers
 tests/test_verbs.py::test_strict_seat_baseline_survives_between_calls
