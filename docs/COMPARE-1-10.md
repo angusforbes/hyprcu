@@ -90,3 +90,39 @@ tree in S2–S4, so the reader did not matter there.
 
 **Bugs found by running this:** `--dry-run` acted for real (fork stubs; fixed), `check --last`
 across CLI calls (fixed), the reset script (fine: Hyprland reuses window addresses).
+
+## Round 2: S0 (no models) and S3b (local, fused calls), with computer-use time
+
+Two more setups on the same tasks and environment:
+
+- **S0 No models**: `HYPRCU_CHOOSER=off`, no `check`. The driver resolves "the notes app" itself by
+  reading `desktop` (in the same trial) and reads screenshots / `--then changes` crops itself.
+  Model-free hyprcu features (accessibility tree, `--then changes`, `sequence`) allowed.
+- **S3b Local, fused**: S3 using the new one-call forms: `pointer click --locate "…"` and `check`
+  as a `sequence` step, so focus → find → click → read is a single turn.
+
+Measured by `tools/trial_times.py`: **total** = trial wall clock incl. the driver's thinking;
+**computer** = time the tools ran (each call to its result: hyprcu, helper models, captures).
+
+| Setup | Correct | Total | Computer-use | Driver | Turns | Images driver read |
+|---|---|---|---|---|---|---|
+| S0 No models | 10/10 | 161 s | 12 s | 149 s | 28 | 7 |
+| S1 kev + screenshots | 10/10 | 162 s | 14 s | 148 s | 26 | 12 |
+| S2 Jev + change crops | 10/10 | ~137 s* | 16 s | ~121 s | 19 | 6 |
+| S3 kev-vision | 9/10 + 1 partial | 125 s | 37 s | 88 s | 15 | 0 |
+| **S3b kev-vision, fused** | 8/10 + 1 partial | **~107 s†** | 41 s | ~66 s | **10** | 0 |
+| S4 Jev + kev-vision → Haiku | 8/10 + 1 partial | 124 s | 40 s | 84 s | 15 | 0 |
+
+\* S2 T2 had a ~7-min driver stall; counted as ~5 s. † S3b T2 (86 s) and T3 (313 s) had driver
+stalls (their tools ran 0.1 s and 0.5 s); counted as ~5–6 s.
+
+S3b errors: T6 the same 3 misspellings as S3 (open reading); **T9 miss**: kev-vision named the first
+fully readable heading (Section 7), not the cut-off Section 6 at the top; S3 answered T9 from the
+accessibility tree instead. S0 T3/T4/T5/T7–T10 each spent a turn reading `desktop` to find the window,
+which a text decider saves.
+
+**Findings.** Computer-use time is small in every setup (12–41 s for all ten tests); the driving
+model's turns are 60–90% of the total. Helper models *add* computer time (local vision: ~4 s per
+locate, 2–5 s per read) but *remove* driver turns and images, which is where the time goes. Fusing
+calls (S3b) cut turns from 15 to 10 and total time ~15%; reaching ~40–60 s needs a faster
+driver per turn (a fresh, short-context or smaller model), not faster tools.
