@@ -33,7 +33,7 @@ from typing import Any
 
 from hyprcu import __version__
 
-OBSERVE = ("desktop", "screenshot", "zoom", "ui", "marks", "binds", "wait_for")
+OBSERVE = ("desktop", "screenshot", "zoom", "ui", "marks", "check", "binds", "wait_for")
 ACT = ("pointer", "keyboard", "click_ui", "hypr", "launch", "use_bind", "sequence")
 OWNER = ("doctor", "init", "stop", "journal", "replay", "skill")
 ALIASES = {"click-ui": "click_ui", "use-bind": "use_bind", "wait-for": "wait_for"}
@@ -123,6 +123,19 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--window", default=_S, metavar="ADDR")
     v.add_argument("--name", default=_S, metavar="TEXT")
     v.add_argument("--out", default=_S, metavar="PATH", help="move the capture to PATH")
+
+    v = verb("check", "ask a local vision model about the screen (no image for you to read)")
+    v.add_argument("question")
+    v.add_argument("--option", dest="options", action="append", default=_S, metavar="TEXT",
+                   help="a possible answer (repeat); default yes / no / cannot tell")
+    v.add_argument("--window", default=_S, metavar="ADDR")
+    v.add_argument("--region", default=_S, metavar="x,y,WxH")
+    v.add_argument("--last", dest="image", action="store_const", const="last", default=_S,
+                   help="look at the area the latest --then changes reported")
+    v.add_argument("--read", action="store_true", default=_S,
+                   help="a short free-text answer instead of choosing an option")
+    v.add_argument("--locate", action="store_true", default=_S,
+                   help="QUESTION names a thing to find; returns global x,y to click")
 
     verb("binds", "the owner's keybinds, decoded")
 

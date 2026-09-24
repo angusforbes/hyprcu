@@ -72,6 +72,71 @@ class KevVision:
         sel = logits[self.letter_ids[:n]].float()
         return self.torch.softmax(sel, dim=-1).tolist()
 
+    def text_probs(self, prompt: str, n: int) -> list[float]:
+        """Letter probabilities for a text-only question (no image): the same
+        readout, so one model serves hyprcu's text choices too."""
+        messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+        text = self.processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        inputs = self.processor(text=[text], return_tensors="pt").to("cuda")
+        with self.torch.inference_mode():
+            out = self.model(**inputs)
+        return self._probs(out.logits[0, -1], n)
+
+    def read(self, image_path: str, question: str, max_new_tokens: int = 120):
+        """A short generated answer to an open question about an image.
+        Returns (text, seconds, tokens)."""
+        from PIL import Image
+
+        img = Image.open(image_path).convert("RGB")
+        messages = [{"role": "user", "content": [
+            {"type": "image", "image": img},
+            {"type": "text", "text": question + "\nAnswer briefly and factually; "
+             "say 'not visible' if the screenshot does not show it."}]}]
+        text = self.processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        inputs = self.processor(text=[text], images=[img], return_tensors="pt").to("cuda")
+        t0 = time.monotonic()
+        with self.torch.inference_mode():
+            out = self.model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+        new = out[0, inputs["input_ids"].shape[1]:]
+        return (self.processor.tokenizer.decode(new, skip_special_tokens=True).strip(),
+                time.monotonic() - t0, len(new))
+
+    def locate(self, image_path: str, target: str):
+        """Where `target` is in the image, as (x, y) image pixels of its centre,
+        or None. Qwen3-VL grounds objects as bbox_2d on a 0-1000 grid."""
+        import json as _json
+        import re as _re
+
+        from PIL import Image
+
+        img = Image.open(image_path).convert("RGB")
+        prompt = (f'Locate "{target}" in the image. Output its bounding box as JSON: '
+                  '[{"bbox_2d": [x1, y1, x2, y2], "label": "..."}]. '
+                  'If it is not visible, output [].')
+        messages = [{"role": "user", "content": [{"type": "image", "image": img},
+                                                 {"type": "text", "text": prompt}]}]
+        text = self.processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        inputs = self.processor(text=[text], images=[img], return_tensors="pt").to("cuda")
+        with self.torch.inference_mode():
+            out = self.model.generate(**inputs, max_new_tokens=80, do_sample=False)
+        raw = self.processor.tokenizer.decode(
+            out[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True
+        )
+        m = _re.search(r"\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,"
+                       r"\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]", raw)
+        if not m:
+            return None, raw
+        x1, y1, x2, y2 = (float(v) for v in m.groups())
+        w, h = img.size
+        _ = _json  # (kept for callers that want the raw JSON)
+        return ((x1 + x2) / 2 / 1000 * w, (y1 + y2) / 2 / 1000 * h), raw
+
     def full(self, image_path: str, question: str, n: int) -> list[float]:
         """Reference path: one full forward pass for one question."""
         from PIL import Image

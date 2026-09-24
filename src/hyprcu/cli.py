@@ -82,6 +82,7 @@ server; for agents that run commands). Observation, works in read-only mode:
   zoom X Y [--size WxH] [--window ADDR] [--stable] [--lossless] [--out PATH]
   ui [--window ADDR] [--name TEXT] [--all]
   marks [--window ADDR] [--name TEXT] [--out PATH]
+  check QUESTION [--option TEXT ...] [--window ADDR | --region x,y,WxH | --last] [--read | --locate]
   binds
   wait_for EVENT [--match TEXT] [--timeout S]
 Acting (refused with exit 3 under HYPRCU_READONLY; all take --dry-run, which

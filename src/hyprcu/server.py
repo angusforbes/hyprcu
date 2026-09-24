@@ -684,6 +684,10 @@ def _prime(then: str) -> None:
         _baseline.frame = None
 
 
+# The areas the most recent then='changes' reported, for check(image="last").
+_last_change: dict[str, Any] = {}
+
+
 def _changes(head: Any) -> list[Any]:
     """What the action changed on the monitor it happened on: nothing (text
     only, no image), a crop per changed area, or the whole screen when most
@@ -743,6 +747,7 @@ def _changes(head: Any) -> list[Any]:
         f"changes: {len(rects)} area(s) changed on {m['name']} ({share:.1%} of it, {waited}): "
         f"{listed}; one crop per area follows"
     )
+    _last_change["rects"] = rects
     out = [head, _text(summary)]
     for x, y, rw, rh in rects:
         out.extend(_deliver_capture(region=f"{x},{y},{rw}x{rh}"))
@@ -1405,6 +1410,132 @@ The same tools as shell verbs (for agents that run commands): hyprcu --help
 """
 
 
+VISION_URL = os.environ.get("HYPRCU_VISION_URL", "http://127.0.0.1:8010")
+_check_meta: dict[str, dict[str, Any]] = {}
+_LETTERS = "ABCDEFGHIJKLMNOP"
+
+
+def _vision_post(endpoint: str, body: dict[str, Any], timeout: float = 120) -> dict[str, Any]:
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"{VISION_URL}{endpoint}", json.dumps(body).encode(),
+        {"content-type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.load(r)
+    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        raise ValueError(
+            f"the vision model is unreachable at {VISION_URL} ({exc}); start it with "
+            "~/Work/kev/.venv/bin/python tools/kev_vision_serve.py, or look at a screenshot"
+        ) from None
+
+
+def _escalate(model: str, image: str, question: str, options: list[str]) -> str | None:
+    """Ask a cloud vision model (via `pi -p`) the same lettered question."""
+    lines = "\n".join(f"{_LETTERS[i]}) {o}" for i, o in enumerate(options))
+    prompt = (f"Look at the screenshot and answer: {question}\n{lines}\n"
+              "Reply with only the letter of the answer.")
+    try:
+        proc = subprocess.run(
+            ["pi", "-p", "--no-session", "-nt", "-ne", "-ns", "-np", "-nc",
+             "--model", model, "--thinking", "off", f"@{image}", prompt],
+            capture_output=True, text=True, timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    m = re.search(rf"\b([{_LETTERS[:len(options)]}])\b", proc.stdout or "")
+    return options[_LETTERS.index(m.group(1))] if m else None
+
+
+def _check_image(window: str, region: str, image: str) -> str:
+    """A file for the vision model: the last change area(s), or a fresh capture."""
+    if image == "last":
+        rects = _last_change.get("rects")
+        if not rects:
+            raise ValueError("no earlier then='changes' result to look at; omit image")
+        x0 = min(r[0] for r in rects)
+        y0 = min(r[1] for r in rects)
+        x1 = max(r[0] + r[2] for r in rects)
+        y1 = max(r[1] + r[3] for r in rects)
+        region = f"{x0},{y0},{x1 - x0}x{y1 - y0}"
+        window = ""
+    elif image:
+        return image
+    data, meta = _grab_env(window, region, stable=True)
+    path = _runtime_dir() / f"check-{int(time.time() * 1000)}.{meta['format']}"
+    path.write_bytes(data)
+    _prune_shots(_runtime_dir())
+    _check_meta.clear()
+    _check_meta[str(path)] = meta  # maps image pixels back to global coordinates
+    return str(path)
+
+
+@journal.journaled("observe")
+def check(
+    question: str,
+    options: list[str] | None = None,
+    window: str = "",
+    region: str = "",
+    image: str = "",
+    read: bool = False,
+    locate: bool = False,
+) -> dict[str, Any]:
+    """Answer a question about the screen WITHOUT you reading a screenshot:
+    a local vision model (kev-vision) looks instead, in ~0.3-2 s, and no
+    image leaves the machine. Use it to verify an action ("Is a dialog
+    open?", "Did the file list change to Documents?") or to pick among
+    known possibilities. `options` are the possible answers (default:
+    yes / no / cannot tell); the reply is the chosen option with its
+    probability `p` and who answered. `read=true` instead returns a short
+    free-text answer for open questions ("Which files are listed?").
+    `locate=true` treats `question` as a thing to find ("the Documents
+    entry in the sidebar") and returns global click coordinates `x`, `y`
+    for pointer, or found=false.
+    Look at: the focused monitor (default), `window`, `region` 'x,y,WxH',
+    or image='last' for the area the latest then='changes' reported. If
+    HYPRCU_VISION_ESCALATE names a cloud model (e.g.
+    anthropic/claude-haiku-4-5), answers below HYPRCU_VISION_THRESHOLD
+    (default 0.9) are re-asked there and the image is sent to it."""
+    safety.touch("check")
+    path = _check_image(window, region, image)
+    t0 = time.monotonic()
+    if locate:
+        meta = _check_meta.get(path)
+        out = _vision_post("/v1/locate", {"image": path, "target": question})
+        ms = int((time.monotonic() - t0) * 1000)
+        if not out.get("point") or meta is None:
+            return {"found": False, "by": "kev-vision", "ms": ms, "raw": out.get("raw", "")}
+        ix, iy = out["point"]
+        gx, gy = meta["geometry"][0], meta["geometry"][1]
+        x, y = round(gx + ix / meta["scale"]), round(gy + iy / meta["scale"])
+        return {"found": True, "x": x, "y": y, "by": "kev-vision", "ms": ms, "image": path}
+    if read:
+        out = _vision_post("/v1/read", {"image": path, "question": question})
+        return {"answer": out.get("text", ""), "by": "kev-vision",
+                "ms": int((time.monotonic() - t0) * 1000), "image": path}
+    opts = list(options) if options else ["yes", "no", "cannot tell"]
+    out = _vision_post("/v1/ask", {"image": path,
+                                   "questions": [{"question": question, "options": opts}]})
+    if "answers" not in out:
+        raise ValueError(f"vision model error: {out.get('error', out)}")
+    ans = out["answers"][0]
+    result = {"answer": ans["choice"], "p": round(ans["p"], 3), "by": "kev-vision"}
+    model = os.environ.get("HYPRCU_VISION_ESCALATE", "")
+    threshold = float(os.environ.get("HYPRCU_VISION_THRESHOLD", "0.9"))
+    if model and ans["p"] < threshold:
+        cloud = _escalate(model, path, question, opts)
+        if cloud is not None:
+            result.update(answer=cloud, by=f"{model.split('/')[-1]} (kev-vision was "
+                          f"{ans['p']:.0%} sure of {ans['choice']!r})")
+            result.pop("p")
+    result["ms"] = int((time.monotonic() - t0) * 1000)
+    result["image"] = path
+    return result
+
+
 @journal.journaled("observe")
 def binds() -> list[dict[str, Any]]:
     """The user's own Hyprland keybinds: combo, action, arg, and a
@@ -1918,7 +2049,7 @@ _READONLY_DOCS = {
 # descriptions at registration time, hence the swap first). Acting tools
 # register only outside read-only mode; clipboard is double-gated: opt-in
 # env, never read-only.
-_OBSERVE_TOOLS = (desktop, screenshot, zoom, ui, marks, binds, wait_for)
+_OBSERVE_TOOLS = (desktop, screenshot, zoom, ui, marks, check, binds, wait_for)
 if READONLY:
     for _observe_tool in _OBSERVE_TOOLS:
         _observe_tool.__doc__ = _READONLY_DOCS.get(
