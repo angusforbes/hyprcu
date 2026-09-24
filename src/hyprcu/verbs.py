@@ -159,6 +159,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "('the file browser'); focused first")
     a.add_argument("--at", nargs=2, type=float, default=_S, metavar=("XPCT", "YPCT"),
                    help="0.0-1.0 fractions of that window (0.5 0.5 = centre); needs --in")
+    a.add_argument("--locate", default=_S, metavar="THING",
+                   help="find THING on screen with the local vision model and click it "
+                        "('the Documents entry in the sidebar'); with --in, in that window")
     a = ps.add_parser("drag", help="drag from X Y to TO_X TO_Y, or "
                                    "--in WINDOW --from XPCT YPCT --to XPCT YPCT")
     a.add_argument("coords", nargs="*", type=float, metavar="X Y TO_X TO_Y")

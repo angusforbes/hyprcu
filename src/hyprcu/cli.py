@@ -86,9 +86,10 @@ server; for agents that run commands). Observation, works in read-only mode:
   binds
   wait_for EVENT [--match TEXT] [--timeout S]
 Acting (refused with exit 3 under HYPRCU_READONLY; all take --dry-run, which
-rehearses; all but launch and clipboard take --then none|desktop|ui|screenshot,
+rehearses; all but launch and clipboard take --then none|desktop|ui|screenshot|changes,
 which appends the effect; pointer, keyboard and click_ui take --allow-auth):
-  pointer move X Y | click [X Y] [--button B] [--double] | drag X Y TO_X TO_Y [--button B]
+  pointer move X Y | click [X Y | --locate THING] [--button B] [--double]
+          | drag X Y TO_X TO_Y [--button B]
           | scroll DY [DX] [--at X Y]
   keyboard type TEXT|- [--window ADDR] | key COMBO [--window ADDR]
   click_ui NAME [--window ADDR] [--index I] [--button B] [--double]   or   click_ui --mark N

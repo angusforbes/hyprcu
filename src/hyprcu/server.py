@@ -867,6 +867,7 @@ def pointer(
     y_pct: float | None = None,
     to_x_pct: float | None = None,
     to_y_pct: float | None = None,
+    locate: str = "",
 ) -> list[Any] | str:
     """Mouse. action='move' (x,y) | 'click' (optional x,y first; button
     left/right/middle; double=true) | 'drag' (x,y → to_x,to_y holding button)
@@ -878,6 +879,10 @@ def pointer(
     is its centre, (0.1,0.05) near its top-left. The window is focused first.
     This is the robust form — it survives the window moving or resizing.
 
+    Or pass `locate` ("the Documents entry in the sidebar") instead of x,y:
+    the local vision model finds it on screen (in `window` when given) and the
+    action happens there, in one call, without you reading a screenshot.
+
     `then` appends the result to this call so you skip a round-trip:
     'changes' only what changed on screen (no image when nothing did, else a
     crop per changed area; usually the cheapest visual check), 'desktop' a
@@ -885,6 +890,18 @@ def pointer(
     elements with current values, 'none' (default) nothing."""
     safety.touch(f"pointer:{action}")
     note = ""
+    located = ""
+    if locate:
+        if window:
+            client = _resolve_window(window)
+            hyprctl.dispatch("focuswindow", f"address:{client['address']}")
+            time.sleep(0.05)
+        found = check(locate, window=window, locate=True)
+        if not found.get("found"):
+            raise ValueError(f"could not find {locate!r} on screen ({found.get('raw', '')[:80]})")
+        x, y = found["x"], found["y"]
+        located = f" [located {locate!r} at ({x}, {y}) by kev-vision in {found['ms']}ms]"
+        window = ""  # coordinates are global now
     if window or x_pct is not None or y_pct is not None:
         if not window:
             raise ValueError("x_pct/y_pct need `window` (address, substring, or description)")
@@ -962,7 +979,7 @@ def pointer(
     if dry:
         return _acted(f"{_DRY} {plan}{note}", then)
     trust.remember_seat()
-    return _acted(f"{action} ok; cursor now at {hyprctl.cursor_pos()}{note}", then)
+    return _acted(f"{action} ok; cursor now at {hyprctl.cursor_pos()}{located}{note}", then)
 
 
 @journal.journaled("act")
@@ -1738,6 +1755,7 @@ _SEQ_HANDLERS = {
     "hypr": hypr,
     "wait_for": wait_for,
     "click_ui": click_ui,
+    "check": check,
 }
 
 # Only STRUCTURAL changes invalidate a half-run plan. Focus changes
@@ -1821,7 +1839,12 @@ def _dispatch_step(step: dict[str, Any]) -> Any:
     op = step.get("op")
     handler = _SEQ_HANDLERS.get(op)
     if handler is None:
-        raise ValueError(f"unknown step op {op!r}: {'|'.join(_SEQ_HANDLERS)}")
+        hint = ""
+        if op is None:
+            guess = step.get("tool") or step.get("type") or step.get("name")
+            hint = f' (each step needs "op"; got keys {sorted(step)}' + (
+                f', did you mean "op": "{guess}"?)' if guess in _SEQ_HANDLERS else ")")
+        raise ValueError(f"unknown step op {op!r}: {'|'.join(_SEQ_HANDLERS)}{hint}")
     # `then` is handled once for the whole sequence, never per step
     params = {k: v for k, v in step.items() if k not in ("op", "then")}
     try:

@@ -214,3 +214,11 @@ def test_choose_control_stays_under_jevs_option_limit(monkeypatch):
     els.append({"note": "showing 450 of 900 elements"})
     e, _ = pick.choose_control("the first one", els)
     assert seen["n"] == pick.MAX_CONTROL_CHOICES and e["name"] == "B0"
+
+
+def test_chooser_off_never_calls_a_model(monkeypatch):
+    monkeypatch.setenv("HYPRCU_CHOOSER", "off")
+    assert pick.chooser() == "off"
+    assert pick.choose("s", "q", {"a": "A", "b": "B"}) is None
+    with pytest.raises(pick.ResolveError, match="descriptions are off"):
+        pick.resolve("the file browser", C)

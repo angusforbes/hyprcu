@@ -12,7 +12,7 @@ The chokepoint is `resolve()`. It returns (client, note) where note is "" or
 click_ui can take "submit the form" as well as "Send message".
 
 Env:
-  HYPRCU_CHOOSER  jev (default) | kev. Jev sends window titles and control
+  HYPRCU_CHOOSER  jev (default) | kev | off. Jev sends window titles and control
                   names to TypeSafe's API and needs TYPESAFE_API_KEY; kev is
                   the local, offline alternative. Measured (tools/choice_bench.py,
                   29 synthetic queries): Jev with an explicit NONE option 28/29 at
@@ -46,11 +46,16 @@ ABSTAINED: dict[str, Any] = {"address": NONE}
 
 def chooser() -> str:
     """The configured backend, read per call so tests/env changes apply."""
-    return "kev" if os.environ.get("HYPRCU_CHOOSER", "jev").strip().lower() == "kev" else "jev"
+    v = os.environ.get("HYPRCU_CHOOSER", "jev").strip().lower()
+    if v in ("off", "none", "0"):
+        return "off"
+    return "kev" if v == "kev" else "jev"
 
 
 def _unreachable(what: str) -> str:
     """Why the chooser could not answer, and what to do about it."""
+    if chooser() == "off":
+        return f"{what} and descriptions are off (HYPRCU_CHOOSER=off): no model resolves them"
     if chooser() == "jev" and not os.environ.get("TYPESAFE_API_KEY"):
         return (
             f"{what} and the jev chooser is unreachable: TYPESAFE_API_KEY is not set "
@@ -71,6 +76,8 @@ def choose(
     probability gate instead). Returns {backend, choice, p, ms, probs}, or None
     when the backend is unreachable or misconfigured."""
     backend = chooser()
+    if backend == "off":
+        return None  # no model: the caller reports that descriptions are off
     crit = dict(criteria)
     if backend == "jev" and none_label:
         crit[NONE] = none_label

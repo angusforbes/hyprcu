@@ -437,3 +437,8 @@ def test_ui_note_renders_as_a_plain_line():
         ],
     )
     assert text.splitlines() == ['[0] push button "OK" @1,2', "(showing 1 of 9 elements)"]
+
+
+def test_sequence_names_the_missing_op_key():
+    with pytest.raises(ValueError, match='did you mean "op": "pointer"'):
+        srv._dispatch_step({"tool": "pointer", "action": "click"})
