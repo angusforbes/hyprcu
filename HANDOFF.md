@@ -161,6 +161,27 @@ WAYLAND-1) — that is why the headless output exists.
   both models were right and my gold was wrong; check real state when
   labelling. Next: add kev-vision (local Qwen3-VL-4B, Visual-Jev readout)
   and VLM+Jev as backends; grow the private set (Obsidian, dialogs, menus).
+- **#4 local vision (2026-09-23), same 47 questions:**
+  | backend | correct | time/question |
+  |---|---|---|
+  | Sonnet 4.6 (pi -p) | 45/47 96% | ~1.4 s incl ~1 s pi startup |
+  | Haiku 4.5 (pi -p) | 41/47 87% | ~1.3 s |
+  | **kev-vision** Qwen3-VL-4B NF4 local, LM-head letter readout | 43/47 91% | 0.63 s amortised (image 2.0 s once, 0.12–0.16 s/question) |
+  | vlm+jev (Qwen describes 70–400 tokens, Jev decides) | 36/47 77% | 5.9 s (14 tok/s generation) |
+  | **kev-vision, escalate p<0.9 to Haiku/Sonnet** | **45/47 96%** | 6% escalated |
+  | kev-vision, escalate p<0.995 to Sonnet | 46/47 98% | 15% escalated |
+  kev-vision: all 15 private right incl. every cannot-tell; its 4 errors are
+  "contradicted" state claims it hedged. Cloud models: perfect on state,
+  weak on cannot-tell — complementary. vlm+jev loses detail on busy screens
+  (poster name, model name, highlighted tab) and is too slow: dropped.
+  Shared-prefix path == full pass on Qwen (mrope OK). GPU: 3.7 GB (4.5 peak);
+  cannot co-run with kev (3.6 GB) on the 8 GB card — kev was stopped for the
+  run and restarted. torchvision 0.23.0+cu128 was installed into kev's venv
+  (Qwen3-VL processor needs it; `uv sync` in kev would remove it).
+  CAVEAT: thresholds picked on the same 47 questions; grow the set before
+  trusting them. Next: a kev-vision server (like kev.service) + hyprcu
+  `ask`/`check` tool; decide GPU sharing with kev (or retire kev: Jev is the
+  default chooser).
 - **Friction to fix:** `sequence` steps use `op` (error says "unknown step op
   None" when given `tool`); `hypr` names its window arg `target` while every
   other tool uses `window`; Jev latency now 0.6–0.9 s (was ~0.3 s).
