@@ -23,6 +23,65 @@ substrings resolve locally and send nothing.
 - To keep everything on the machine, set `HYPRCU_CHOOSER=kev` and run the local
   kev model instead (slower and less accurate; see below).
 
+## Which model decides what
+
+hyprcu separates two kinds of judgement, and uses different models for each.
+
+**Text decisions** (which window is "the file browser", which control does
+"submit the form"), made from window titles and the accessibility tree:
+
+| model | where it runs | what leaves the machine | status |
+|---|---|---|---|
+| **Jev** (TypeSafe), default | cloud | window titles/classes or control names/values + your description | in hyprcu (`HYPRCU_CHOOSER=jev`) |
+| **kev** (kev-4b) | local GPU (`kev.service`) | nothing | in hyprcu (`HYPRCU_CHOOSER=kev`) |
+
+Jev is more accurate and faster (28/29 vs 20–25/29 on `tools/choice_bench.py`)
+and can say "none of these"; kev keeps everything local.
+
+**Visual decisions** (did it work, is a dialog open, what does this say,
+which option is selected), made from a screenshot or a `--then changes` crop.
+Jev cannot do these: it reads text only and never sees an image.
+
+| model | where it runs | what leaves the machine | status |
+|---|---|---|---|
+| **kev-vision** (Qwen3-VL-4B-Instruct, 4-bit) | local GPU | nothing | benchmark only (`tools/vision_bench/`) |
+| **Claude Haiku 4.5 / Sonnet 4.6** | cloud (via `pi -p`) | the image | benchmark only |
+| Qwen describes the image, Jev decides from the text | local + cloud | the description | tested and dropped |
+
+kev-vision answers without generating text: it reads the model's
+probability for each lettered option in one pass (the readout of the
+[Visual Jev](https://arxiv.org/abs/2609.25845) paper), and encodes each
+screenshot once however many questions are asked about it.
+
+Measured on 47 questions an agent asks after acting (32 about the nested
+test session, in this repo; 15 about the owner's real desktop, kept
+private), 2026-09-23:
+
+| setup | correct | time per question |
+|---|---|---|
+| Sonnet 4.6 | 45/47 (96%) | ~1.4 s (incl. ~1 s pi startup) |
+| Haiku 4.5 | 41/47 (87%) | ~1.3 s |
+| kev-vision, local | 43/47 (91%) | 0.63 s (2 s to encode a full screenshot, then ~0.15 s per question) |
+| Qwen describes, Jev decides | 36/47 (77%) | 5.9 s |
+| **kev-vision, sending answers below 0.9 confidence to Haiku or Sonnet** | **45/47 (96%)** | 6% of questions leave the machine |
+| kev-vision, below 0.995 to Sonnet | 46/47 (98%) | 15% leave the machine |
+
+The local and cloud models fail in opposite ways (the cloud models guess
+when the image cannot answer; kev-vision hedges on false claims), and
+kev-vision's confidence drops on its mistakes, which is why escalating only
+its uncertain answers works. The thresholds were chosen on these same 47
+questions, so treat the combined rows as optimistic until the set grows.
+kev-vision needs ~3.7 GB of GPU memory (4.5 GB peak) and does not fit
+alongside kev on an 8 GB card.
+
+Run the benchmark (kev-vision needs kev's venv, which has torch):
+
+    python3 tools/vision_bench/run.py pi:anthropic/claude-haiku-4-5 pi:anthropic/claude-sonnet-4-6
+    ~/Work/kev/.venv/bin/python tools/vision_bench/run.py kev-vision
+
+Next: a kev-vision server and a hyprcu tool that asks it about the latest
+screenshot or change crop, escalating uncertain answers.
+
 ## What's kept from upstream
 
 | module | what |
