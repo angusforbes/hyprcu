@@ -230,8 +230,43 @@ def test_window_frame_scopes_multi_window_app():
     bus = FakeBus(nodes)
     assert a11y.window_frame(bus, "app", "/root", title="Doc B") == ("app", "/f2")
     assert a11y.window_frame(bus, "app", "/root", size=(400, 300)) == ("app", "/f1")
-    # no confident match -> app root (best effort)
-    assert a11y.window_frame(bus, "app", "/root", title="Doc C") == ("app", "/root")
+    # several NAMED windows and no confident match -> None, never the root
+    # (walking the root reads whichever window comes first)
+    assert a11y.window_frame(bus, "app", "/root", title="Doc C") is None
+
+
+def test_window_frame_chromium_shared_process():
+    # Chromium: one AT-SPI app for every browser window and web app. Hyprland's
+    # title drifts ('_/' suffix, unread counts) and its size is in compositor
+    # pixels while AT-SPI extents are toolkit-logical (x1.357 here).
+    nodes = {
+        ("app", "/root"): {"role": 75, "name": "Chromium", "children": [
+            ("app", "/gh"), ("app", "/wa"), ("app", "/pop")]},
+        ("app", "/gh"): {"role": 23, "name": "angusforbes/hyprcu - Chromium",
+                         "extent": (0, 0, 1309, 785), "children": []},
+        ("app", "/wa"): {"role": 23, "name": "web.whatsapp.com",
+                         "extent": (0, 0, 649, 785), "children": []},
+        ("app", "/pop"): {"role": 23, "name": "", "extent": (0, 0, 10, 10), "children": []},
+    }
+    bus = FakeBus(nodes)
+    wa = ("app", "/wa")
+    assert a11y.window_frame(bus, "app", "/root", title="web.whatsapp.com_/") == wa
+    assert a11y.window_frame(bus, "app", "/root", title="(3) web.whatsapp.com") == wa
+    assert a11y.window_frame(bus, "app", "/root", title="angusforbes/hyprcu") == ("app", "/gh")
+    # title useless, size in different units: uniform-scale shape match
+    assert a11y.window_frame(bus, "app", "/root", title="?", size=(881, 1066)) == wa
+    # nothing matches: refuse rather than read the GitHub window
+    assert a11y.window_frame(bus, "app", "/root", title="Slack", size=(500, 500)) is None
+
+
+def test_window_frame_unnamed_popups_fall_back_to_root():
+    nodes = {
+        ("app", "/root"): {"role": 75, "name": "app", "children": [("app", "/f1"), ("app", "/menu")]},
+        ("app", "/f1"): {"role": 23, "name": "Editor", "extent": (0, 0, 400, 300), "children": []},
+        ("app", "/menu"): {"role": 23, "name": "", "extent": (0, 0, 50, 80), "children": []},
+    }
+    bus = FakeBus(nodes)
+    assert a11y.window_frame(bus, "app", "/root", title="Other") == ("app", "/root")
 
 
 def test_window_frame_single_toplevel_uses_root():

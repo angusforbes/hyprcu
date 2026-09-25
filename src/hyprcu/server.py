@@ -25,6 +25,7 @@ from typing import Any
 from hyprcu import (
     __version__,
     a11y,
+    appnotes,
     cleanup,
     events,
     hyprctl,
@@ -39,7 +40,11 @@ from hyprcu import input as hinput
 from hyprcu import screenshot as shot
 
 INSTRUCTIONS = """\
-hyprcu controls a live Hyprland desktop. Workflow: call `desktop` first
+hyprcu controls a live Hyprland desktop. Before driving an app, call
+`app_notes()`: the owner keeps per-app notes (fast recipes, how to
+verify, pitfalls, and rules such as "ask before sending messages"), and
+a tool result that touches a noted app for the first time points at its
+file; read it and follow its owner rules. Workflow: call `desktop` first
 and prefer `hypr`/`launch` (IPC, instant and exact) for anything window-
 or workspace-shaped; use `screenshot` + `pointer`/`keyboard` only to see
 and operate inside application windows. Launchers, bars, notification
@@ -436,6 +441,13 @@ def _ui_read(
         if app is None:
             return f"{cls} exposes no accessibility tree; use screenshot + zoom instead"
         frame = a11y.window_frame(bus, app[0], app[1], title, tuple(client["size"]))
+        if frame is None:
+            return (
+                f"{cls} shares one accessibility app with other windows of the same "
+                f"process and none of its windows could be matched to {title!r}; "
+                "not reading a possibly different window. Use screenshot + zoom, "
+                "or give the window a distinctive title."
+            )
         elements, truncated = a11y.find_elements(
             bus, frame[0], frame[1], name=name, actionable=actionable, max_results=UI_READ_MAX
         )
@@ -2112,16 +2124,73 @@ if READONLY:
         )
 
 
+def app_notes(app: str = "") -> str:
+    """Per-app interaction notes kept by the owner and earlier agents: how
+    to drive that app quickly (commands, shortcuts, fullscreen needs), how
+    to verify, known pitfalls, and the owner's rules (e.g. ask before
+    sending messages). No `app` = the index of apps with notes; `app` = a
+    name from the index = that app's full notes. hyprcu also points at the
+    right file the first time a session touches a window of a noted app."""
+    return appnotes.lookup(app)
+
+
+def _notes_client(fn_name: str, kwargs: dict[str, Any], out: Any) -> dict[str, Any] | None:
+    """The window a tool call touched, cheaply and without the chooser: a
+    launched window, an address/substring `window`/`target`, else (for
+    input tools) the focused window after the action."""
+    clients = hyprctl.query("clients") or []
+    if fn_name == "launch" and isinstance(out, dict) and out.get("address"):
+        return next((c for c in clients if c.get("address") == out["address"]), None)
+    q = (kwargs.get("window") or kwargs.get("target") or "").strip()
+    if q and q != "active":
+        ql = q.lower()
+        return next((c for c in clients if c.get("address") == q), None) or next(
+            (c for c in clients
+             if ql in (c.get("class") or "").lower() or ql in (c.get("title") or "").lower()),
+            None)
+    if fn_name in ("keyboard", "click_ui", "pointer", "sequence", "use_bind", "ui", "marks") or q == "active":
+        addr = (hyprctl.query("activewindow") or {}).get("address")
+        return next((c for c in clients if c.get("address") == addr), None)
+    return None
+
+
+def _with_app_notes(fn: Any) -> Any:
+    """Append a one-time app-notes hint to a tool's result. Never changes
+    the result otherwise and never fails the tool."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        out = fn(*args, **kwargs)
+        if not appnotes.ENABLED:
+            return out
+        try:
+            h = appnotes.hint(_notes_client(fn.__name__, kwargs, out))
+        except Exception:  # noqa: BLE001 (notes are advisory)
+            return out
+        if not h:
+            return out
+        if isinstance(out, str):
+            return f"{out}\n{h}"
+        if isinstance(out, list):
+            return [*out, _text(h)]
+        if isinstance(out, dict):
+            return {**out, "app_notes": h}
+        return out
+    return wrapper
+
+
 def build_app() -> Any:
     """The FastMCP application with the tools registered for this mode."""
     from mcp.server.fastmcp import FastMCP
 
     app_ = FastMCP("hyprcu", instructions=_instructions)
     for observe_tool in _OBSERVE_TOOLS:
-        app_.tool()(observe_tool)
+        app_.tool()(_with_app_notes(observe_tool) if observe_tool.__name__ in ("ui", "marks", "screenshot") else observe_tool)
+    app_.tool()(app_notes)
     if not READONLY:
         for acting_tool in (pointer, keyboard, click_ui, hypr, launch, use_bind, sequence):
-            app_.tool()(acting_tool)
+            app_.tool()(_with_app_notes(acting_tool))
         if CLIPBOARD:
             app_.tool()(clipboard)
     return app_

@@ -9,7 +9,7 @@ test that wants the interesting state opts in explicitly.
 
 import pytest
 
-from hyprcu import hyprctl, journal, server, trust
+from hyprcu import appnotes, hyprctl, journal, server, trust
 
 
 @pytest.fixture(autouse=True)
@@ -74,3 +74,11 @@ def pytest_collection_modifyitems(config, items):
             it.add_marker(pytest.mark.xfail(
                 reason="hyprcu: guard removed, or window= accepts substrings/"
                        "descriptions (pick.py)", strict=True))
+
+
+@pytest.fixture(autouse=True)
+def no_real_app_notes(monkeypatch, tmp_path):
+    """App notes come from an empty temp dir unless a test writes some:
+    the developer's real ~/.pi/agent/notes/apps must not leak into results."""
+    monkeypatch.setattr(appnotes, "_DIR", str(tmp_path / "app-notes"))
+    appnotes.reset()

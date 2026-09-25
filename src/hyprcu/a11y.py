@@ -22,6 +22,7 @@ the server does the correlation and mapping.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import time
@@ -350,25 +351,67 @@ def window_frame(
     app_path: str,
     title: str = "",
     size: tuple[int, int] | None = None,
-) -> tuple[str, str]:
-    """The app's toplevel matching a SPECIFIC window (by accessible name ==
-    title, then by extent size), so a multi-window app's OTHER windows are
-    not walked and mapped with the wrong origin. Returns the app root when
-    there is a single toplevel or no confident match (walking from the root
-    is then correct or the best available)."""
+) -> tuple[str, str] | None:
+    """The app's toplevel matching a SPECIFIC window, so a multi-window app's
+    OTHER windows are not walked and mapped with the wrong origin.
+
+    Tried in order, each accepted only when it singles out ONE frame:
+    exact name == title; normalised name (unread-count prefixes like "(3) "
+    and case dropped) equal; one contained in the other; exact extent size;
+    same shape at a uniform scale (AT-SPI extents are toolkit-logical pixels
+    while Hyprland reports compositor pixels, e.g. 649x785 vs 881x1066).
+
+    Returns the app root when there is a single toplevel, or when the other
+    toplevels are unnamed popups/menus (walking from the root is then
+    correct). Returns None when several NAMED windows exist and none can be
+    told apart: all Chromium windows and web apps share one process and one
+    AT-SPI app, and walking the root would read whichever window comes
+    first (a GitHub tab instead of WhatsApp)."""
     frames = _children(bus, app_svc, app_path)
     if len(frames) <= 1:
         return (app_svc, app_path)
+    names = {f: _name(bus, *f) for f in frames}
+
+    def unique(pred) -> tuple[str, str] | None:
+        hits = [f for f in frames if pred(f)]
+        return hits[0] if len(hits) == 1 else None
+
     if title:
-        for fs, fp in frames:
-            if _name(bus, fs, fp) == title:
-                return (fs, fp)
-    if size:
-        for fs, fp in frames:
-            ext = _window_extents(bus, fs, fp)
-            if ext and (ext[2], ext[3]) == tuple(size):
-                return (fs, fp)
+        t = _norm_title(title)
+        for pred in (
+            lambda f: names[f] == title,
+            lambda f: _norm_title(names[f]) == t,
+            lambda f: bool(names[f]) and (t in _norm_title(names[f]) or _norm_title(names[f]) in t),
+        ):
+            hit = unique(pred)
+            if hit:
+                return hit
+    if size and size[0] and size[1]:
+        exts = {f: _window_extents(bus, *f) for f in frames}
+        hit = unique(lambda f: bool(names[f]) and bool(exts[f]) and (exts[f][2], exts[f][3]) == tuple(size))
+        if hit:
+            return hit
+
+        def same_shape(f) -> bool:
+            e = exts[f]
+            if not names[f] or not e or not e[2] or not e[3]:  # unnamed = popup/menu
+                return False
+            kx, ky = size[0] / e[2], size[1] / e[3]
+            return abs(kx - ky) / max(kx, ky) < 0.02
+        hit = unique(same_shape)
+        if hit:
+            return hit
+    if sum(1 for f in frames if names[f]) >= 2:
+        return None
     return (app_svc, app_path)
+
+
+def _norm_title(s: str) -> str:
+    """Window title without the volatile bits: a leading unread count
+    '(3) ', a trailing '_/' or ' - Chromium' decoration, case, spaces."""
+    s = re.sub(r"^\(\d+\)\s*", "", s or "")
+    s = re.sub(r"(_/|\s+-\s+(Chromium|Google Chrome|Brave|Brave Origin))$", "", s)
+    return re.sub(r"\s+", " ", s).strip().lower()
 
 
 def _name(bus: Bus, svc: str, path: str) -> str:
