@@ -868,10 +868,19 @@ def pointer(
     to_x_pct: float | None = None,
     to_y_pct: float | None = None,
     locate: str = "",
+    modifiers: str = "",
 ) -> list[Any] | str:
     """Mouse. action='move' (x,y) | 'click' (optional x,y first; button
     left/right/middle; double=true) | 'drag' (x,y → to_x,to_y holding button)
     | 'scroll' (scroll_dy notches, positive = content down; optional x,y first).
+
+    `modifiers` holds keys down DURING a click/drag/scroll: 'ctrl' for
+    Ctrl+click (open a terminal link, add to a selection), 'shift' for a
+    range select, 'ctrl+shift', 'alt', 'super'. They go to the FOCUSED
+    window, so pass `window` (focused first) when the target may not be.
+    If the human types on a physical keyboard during the ~40 ms hold,
+    Hyprland switches the seat to that keyboard and its modifier state
+    replaces ours, so the click lands unmodified; just retry.
 
     Coordinates are GLOBAL logical pixels by default. Pass `window` (address,
     class/title substring, or a description like "the file browser") plus
@@ -926,6 +935,10 @@ def pointer(
     # real one would be worth nothing.
     dry = journal.dry_run()
     plan = ""
+    mods = hinput.parse_mods(modifiers)  # validated before any side effect, dry run too
+    if mods and action == "move":
+        raise ValueError("modifiers apply to click, drag and scroll, not move")
+    held = f"{'+'.join(mods)}+" if mods else ""
     # (note may already carry the kev pick from the window= branch above)
     if action != "move":
         # a locked session routes every event to its credential prompt, so
@@ -953,9 +966,9 @@ def pointer(
         hinput.check_xy(x, y)
         trust.guard_pointer(x, y, allow_auth)  # None x/y = click at current cursor
         note = note or _layer_note(x, y)
-        plan = f"{'double-' if double else ''}click {button} at {_at(x, y)}"
+        plan = f"{'double-' if double else ''}{held}click {button} at {_at(x, y)}"
         if not dry:
-            hinput.click(x, y, button=button, double=double)
+            hinput.click(x, y, button=button, double=double, modifiers=mods)
     elif action == "drag":
         if None in (x, y, to_x, to_y):
             raise ValueError("drag needs x, y, to_x, to_y")
@@ -963,23 +976,25 @@ def pointer(
         trust.guard_pointer(x, y, allow_auth)
         trust.guard_pointer(to_x, to_y, allow_auth)  # the drag ends elsewhere; guard that too
         note = note or _layer_note(x, y)
-        plan = f"drag {button} from {_at(x, y)} to {_at(to_x, to_y)}"
+        plan = f"{held}drag {button} from {_at(x, y)} to {_at(to_x, to_y)}"
         if not dry:
-            hinput.drag(x, y, to_x, to_y, button=button)  # type: ignore[arg-type]
+            hinput.drag(x, y, to_x, to_y, button=button, modifiers=mods)  # type: ignore[arg-type]
     elif action == "scroll":
         hinput.check_scroll(scroll_dy, scroll_dx)
         hinput.check_xy(x, y)
         trust.guard_pointer(x, y, allow_auth)  # None x/y = scroll at current cursor
         note = note or _layer_note(x, y)
-        plan = f"scroll dy={scroll_dy:g} dx={scroll_dx:g} at {_at(x, y)}"
+        plan = f"{held}scroll dy={scroll_dy:g} dx={scroll_dx:g} at {_at(x, y)}"
         if not dry:
-            hinput.scroll(dy=scroll_dy, dx=scroll_dx, x=x, y=y)
+            hinput.scroll(dy=scroll_dy, dx=scroll_dx, x=x, y=y, modifiers=mods)
     else:
         raise ValueError(f"unknown action {action!r}: move|click|drag|scroll")
     if dry:
         return _acted(f"{_DRY} {plan}{note}", then)
     trust.remember_seat()
-    return _acted(f"{action} ok; cursor now at {hyprctl.cursor_pos()}{located}{note}", then)
+    return _acted(
+        f"{held}{action} ok; cursor now at {hyprctl.cursor_pos()}{located}{note}", then
+    )
 
 
 @journal.journaled("act")

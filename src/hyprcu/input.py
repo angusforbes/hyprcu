@@ -92,6 +92,25 @@ def parse_combo(combo: str) -> tuple[list[str], str | None]:
     return mods, key
 
 
+def parse_mods(mods: str | list[str] | None) -> list[str]:
+    """Modifiers to hold during a pointer action: 'ctrl', 'ctrl+shift', or a
+    list ['ctrl', 'shift']. Returns wire names (super -> logo), deduplicated,
+    in order. Empty/None -> [] (no modifiers)."""
+    if not mods:
+        return []
+    parts = mods.split("+") if isinstance(mods, str) else list(mods)
+    out: list[str] = []
+    for part in parts:
+        name = part.strip().lower()
+        if not name:
+            continue
+        if name not in MODS:
+            raise InputError(f"unknown modifier {part!r}; one of ctrl, shift, alt, super, altgr")
+        if MODS[name] not in out:
+            out.append(MODS[name])
+    return out
+
+
 def combo_to_wtype_args(mods: list[str], key: str | None) -> list[str]:
     args: list[str] = []
     for m in mods:
@@ -165,20 +184,57 @@ def key_combo(combo: str) -> None:
 _vp: VirtualPointer | None = None
 _vk: VirtualKeyboard | None = None
 _held_button: str | None = None
+_held_mods: Any = None  # press_mods handle while a modifier+pointer action runs
 
 
 def release_held() -> None:
-    """Best-effort release of a button an in-flight drag is holding.
+    """Best-effort release of a button an in-flight drag is holding, and of
+    any modifiers a modifier+click/drag/scroll is holding.
 
     Registered on the SIGTERM path (cleanup.register): a click's
     press/release pair never spans interpreter checkpoints where a signal
     could land with the button down, but a drag holds it across ~200 ms of
-    cursor moves, and the kill switch must not end the process mid-hold."""
-    global _held_button
+    cursor moves, and the kill switch must not end the process mid-hold.
+    A stuck ctrl would be worse than a stuck button: every later keystroke
+    the human types would arrive as a shortcut."""
+    global _held_button, _held_mods
     if _held_button and _vp is not None:
         with contextlib.suppress(Exception):
             _vp.button(_held_button, RELEASED)
     _held_button = None
+    if _held_mods is not None and _vk is not None:
+        with contextlib.suppress(Exception):
+            _vk.release_mods(_held_mods)
+    _held_mods = None
+
+
+@contextlib.contextmanager
+def _holding(mods: list[str]):
+    """Hold modifiers on our virtual keyboard for the duration of the block.
+
+    Only our own keyboard can do this: wtype presses and releases within one
+    process, so it cannot keep ctrl down while the pointer clicks. Callers
+    hold _seat_lock. No modifiers -> a no-op, so plain clicks are unchanged."""
+    global _held_mods
+    if not mods:
+        yield
+        return
+    if not (_on_named_seat() or _connect_keyboard()):
+        raise InputError(
+            "modifier+pointer needs hyprcu's virtual keyboard "
+            "(zwp_virtual_keyboard_v1), which this compositor refused"
+        )
+    handle = _with_keyboard(lambda k: k.press_mods(mods))
+    _held_mods = handle  # set before yielding: SIGTERM mid-click must see it
+    try:
+        time.sleep(0.02)  # let the focused client apply the new modifier state
+        yield
+    finally:
+        with contextlib.suppress(Exception):
+            time.sleep(0.02)
+            if _vk is not None:
+                _vk.release_mods(handle)
+        _held_mods = None
 
 
 def _connect_keyboard() -> bool:
@@ -279,20 +335,31 @@ def click(
     y: float | None = None,
     button: str = "left",
     double: bool = False,
+    modifiers: str | list[str] | None = None,
 ) -> None:
     journal.refuse_if_dry("click")
     _check_button(button)
     has_xy = _check_xy(x, y)
+    mods = parse_mods(modifiers)
     with _seat_lock:
         if has_xy:
             move(x, y)  # type: ignore[arg-type]
             time.sleep(0.02)
-        _with_pointer(lambda p: p.click(button, double=double))
+        with _holding(mods):
+            _with_pointer(lambda p: p.click(button, double=double))
 
 
-def drag(x1: float, y1: float, x2: float, y2: float, button: str = "left") -> None:
+def drag(
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    button: str = "left",
+    modifiers: str | list[str] | None = None,
+) -> None:
     journal.refuse_if_dry("drag")
     _check_button(button)
+    mods = parse_mods(modifiers)
 
     def run(p: VirtualPointer) -> None:
         global _held_button
@@ -324,17 +391,24 @@ def drag(x1: float, y1: float, x2: float, y2: float, button: str = "left") -> No
     with _seat_lock:
         _with_pointer(lambda p: p.move_to(x1, y1))
         time.sleep(0.05)
-        _with_pointer(run)
+        with _holding(mods):
+            _with_pointer(run)
 
 
 def scroll(
-    dy: float = 0.0, dx: float = 0.0, x: float | None = None, y: float | None = None
+    dy: float = 0.0,
+    dx: float = 0.0,
+    x: float | None = None,
+    y: float | None = None,
+    modifiers: str | list[str] | None = None,
 ) -> None:
     journal.refuse_if_dry("scroll")
     check_scroll(dy, dx)
     has_xy = _check_xy(x, y)
+    mods = parse_mods(modifiers)
     with _seat_lock:
         if has_xy:
             move(x, y)  # type: ignore[arg-type]
             time.sleep(0.02)
-        _with_pointer(lambda p: p.scroll(dy=dy, dx=dx))
+        with _holding(mods):
+            _with_pointer(lambda p: p.scroll(dy=dy, dx=dx))

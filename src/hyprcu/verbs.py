@@ -176,6 +176,11 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("dx", type=float, nargs="?", default=_S, metavar="DX")
     a.add_argument("--at", nargs=2, type=float, default=_S, metavar=("X", "Y"),
                    help="move there first")
+    for name in ("click", "drag", "scroll"):
+        ps.choices[name].add_argument(
+            "--mods", dest="modifiers", default=_S, metavar="MODS",
+            help="hold modifiers during it: ctrl (Ctrl+click), shift, ctrl+shift, alt, super",
+        )
     for a in ps.choices.values():
         acting(a, auth=True)
 

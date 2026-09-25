@@ -36,6 +36,11 @@ is stated in the README section "Requires a TypeSafe API key" — keep it true.
 - `ruff check .` clean · `pytest -q` **391 passed**, 53 xfailed · `pytest -m e2e`
   7 passed (against the nested session).
 - **6 local commits NOT pushed** (`8335af5`..`d224f47`). Push when Angus says.
+- 2026-09-25: `pointer` gained `modifiers` ('ctrl', 'ctrl+shift', ...) for click/drag/scroll
+  (CLI `--mods`), held on hyprcu's own virtual keyboard (`VirtualKeyboard.press_mods`/
+  `release_mods`), released on SIGTERM. Live-verified: Ctrl+click on an OSC 8 file link in
+  kitty (`--debug-input` log: `mods: ctrl` → `mouse_handle_click`) opened imv. Caveat: the
+  human typing during the hold swaps Hyprland's active keyboard and drops the modifier.
 - Pi's `~/.pi/agent/mcp.json` sets `HYPRCU_CHOOSER=jev` for the hyprcu server
   (backup: `mcp.json.bak-20260923-030548`). Pi panes need `/reload` to pick up
   the config and new code.

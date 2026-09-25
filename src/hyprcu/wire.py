@@ -683,3 +683,28 @@ class VirtualKeyboard(VirtualPointer):
         for m in reversed(mods):
             self._send(kb, VK_KEY, struct.pack("<III", _now_ms(), codes[f"M_{m}"], RELEASED))
         self._roundtrip()
+
+    def press_mods(self, mods: list[str]) -> tuple[int, dict[str, int], list[str]]:
+        """Press and HOLD modifiers (for a modifier+click); returns a handle for
+        release_mods. Same mechanism as key_combo: real key presses plus the
+        announced depressed mask. The roundtrip before returning makes the
+        compositor apply the mask before any pointer event that follows, so the
+        focused client sees e.g. ctrl held on the button press."""
+        keymap, codes = _keymap_for_combo(None, mods)
+        kb = self._new_keyboard()
+        self._upload_keymap(kb, keymap)
+        mask = 0
+        for m in mods:
+            mask |= COMBO_MOD_MASK[m]
+            self._send(kb, VK_KEY, struct.pack("<III", _now_ms(), codes[f"M_{m}"], PRESSED))
+        self._send(kb, VK_MODIFIERS, struct.pack("<IIII", mask, 0, 0, 0))
+        self._roundtrip()
+        return kb, codes, list(mods)
+
+    def release_mods(self, handle: tuple[int, dict[str, int], list[str]]) -> None:
+        """Release what press_mods holds: clear the mask, then key-ups in reverse."""
+        kb, codes, mods = handle
+        self._send(kb, VK_MODIFIERS, struct.pack("<IIII", 0, 0, 0, 0))
+        for m in reversed(mods):
+            self._send(kb, VK_KEY, struct.pack("<III", _now_ms(), codes[f"M_{m}"], RELEASED))
+        self._roundtrip()
